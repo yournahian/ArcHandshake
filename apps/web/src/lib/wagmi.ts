@@ -2,7 +2,7 @@ import { http, createConfig } from "wagmi";
 import { injected } from "wagmi/connectors";
 
 // Arc Testnet requires minimum 20 Gwei gas price.
-const ARC_MIN_GAS_PRICE = 20_000_000_000n; // 20 Gwei in wei
+const ARC_MIN_GAS_PRICE = BigInt(20000000000); // 20 Gwei in wei
 
 export const arcTestnet = {
   id: 5042002,
