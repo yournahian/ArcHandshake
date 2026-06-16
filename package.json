@@ -1,0 +1,15 @@
+{
+  "name": "arc-handshake",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "contracts",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=apps/web",
+    "dev:bot": "npm run dev --workspace=apps/bot",
+    "build:web": "npm run build --workspace=apps/web",
+    "build:contracts": "npm run build --workspace=contracts"
+  }
+}

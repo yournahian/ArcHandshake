@@ -1,0 +1,15 @@
+{
+  "name": "contracts",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5",
+    "dotenv": "^16.4.5"
+  }
+}
