@@ -273,7 +273,7 @@ export default function CreateEscrow() {
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={{
-            background: "rgba(99, 102, 241, 0.1)",
+            background: "rgba(255, 255, 255, 0.08)",
             color: "var(--primary)",
             width: "48px",
             height: "48px",
@@ -455,8 +455,8 @@ export default function CreateEscrow() {
                 { n: 1, label: "Approve USDC — allow the escrow contract to spend your USDC" },
                 { n: 2, label: "Fund Escrow — transfer USDC into the locked escrow" },
               ].map(({ n, label }) => (
-                <div key={n} style={{ display: "flex", gap: "12px", alignItems: "flex-start", padding: "10px 14px", background: "rgba(99,102,241,0.04)", border: "1px solid rgba(99,102,241,0.12)", borderRadius: "8px" }}>
-                  <span style={{ background: "rgba(99,102,241,0.15)", color: "var(--primary)", borderRadius: "50%", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, flexShrink: 0, fontSize: "0.85rem" }}>{n}</span>
+                <div key={n} style={{ display: "flex", gap: "12px", alignItems: "flex-start", padding: "10px 14px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "8px" }}>
+                  <span style={{ background: "rgba(255, 255, 255, 0.08)", color: "var(--primary)", borderRadius: "50%", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, flexShrink: 0, fontSize: "0.85rem" }}>{n}</span>
                   <span style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>{label}</span>
                 </div>
               ))}

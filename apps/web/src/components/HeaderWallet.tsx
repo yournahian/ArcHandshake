@@ -16,11 +16,11 @@ export function HeaderWallet() {
         <span style={{
           fontFamily: "Space Grotesk",
           fontSize: "0.9rem",
-          background: "rgba(99, 102, 241, 0.1)",
-          color: "#6366f1",
+          background: "rgba(255, 255, 255, 0.08)",
+          color: "var(--primary)",
           padding: "6px 12px",
           borderRadius: "8px",
-          border: "1px solid rgba(99, 102, 241, 0.2)"
+          border: "1px solid var(--border-color)"
         }}>{formatted}</span>
         <button onClick={() => disconnect()} className="btn-secondary" style={{ padding: "8px 16px", fontSize: "0.9rem" }}>
           Disconnect

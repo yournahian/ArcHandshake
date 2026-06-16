@@ -835,7 +835,7 @@ export default function EscrowDetail() {
         </div>
 
         {/* Budget detail */}
-        <div style={{ textAlign: "center", padding: "24px", background: "rgba(99, 102, 241, 0.03)", border: "1px solid rgba(99, 102, 241, 0.1)", borderRadius: "16px" }}>
+        <div style={{ textAlign: "center", padding: "24px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "16px" }}>
           <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
             {budgetRaw === 0n && proposedBudget ? "Proposed Budget (Pending Confirmation)" : "Escrow Balance"}
           </span>
@@ -882,7 +882,7 @@ export default function EscrowDetail() {
                 {fileName && <p style={{ marginTop: "12px", fontSize: "0.9rem", color: "var(--primary)" }}>Selected: {fileName}</p>}
                 
                 {fileUrl && (
-                  <div style={{ marginTop: "24px", padding: "12px", background: "rgba(99, 102, 241, 0.05)", borderRadius: "8px", border: "1px solid rgba(99, 102, 241, 0.15)", display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <div style={{ marginTop: "24px", padding: "12px", background: "rgba(255, 255, 255, 0.03)", borderRadius: "8px", border: "1px solid var(--border-color)", display: "flex", flexDirection: "column", gap: "12px" }}>
                     <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginBottom: "0px" }}>
                       File watermarked locally for preview. Send this file directly inside your Telegram chat captioning it with <code>#submit {id}</code> or trigger the verification scan directly below.
                     </p>
@@ -1013,15 +1013,15 @@ export default function EscrowDetail() {
 
           {/* SELLER: Set / Update Budget — shown whenever job is Open */}
           {isProvider && status === 0 && !isNegotiationActive && (
-            <div style={{ background: "rgba(168,85,247,0.05)", border: "1px solid rgba(168,85,247,0.2)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <DollarSign size={20} style={{ color: "var(--secondary)" }} />
+                <DollarSign size={20} style={{ color: "var(--primary)" }} />
                 <span style={{ fontWeight: 600, fontSize: "1.05rem" }}>
                   {budgetRaw === 0n ? "Set Your Budget (Seller Action)" : "Update Budget"}
                 </span>
                 {budgetRaw > 0n && (
                   <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginLeft: "auto" }}>
-                    Currently: <b style={{ color: "var(--secondary)" }}>{budget} USDC</b>
+                    Currently: <b style={{ color: "var(--primary)" }}>{budget} USDC</b>
                   </span>
                 )}
               </div>
@@ -1104,7 +1104,7 @@ export default function EscrowDetail() {
           {isClient && status === 0 && budgetRaw > 0n && !isNegotiationActive && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               
-              <div style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <Wallet size={20} style={{ color: "var(--primary)" }} />
                   <span style={{ fontWeight: 600, fontSize: "1.05rem" }}>Fund Escrow (Buyer Action)</span>

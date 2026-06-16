@@ -431,9 +431,9 @@ export default function MeetupDetail() {
               <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
                 
                 {isScanning ? (
-                  <div style={{ border: "2px dashed var(--secondary)", borderRadius: "16px", padding: "60px 20px", background: "rgba(168, 85, 247, 0.03)", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
-                    <Camera className="animate-pulse" size={32} style={{ color: "var(--secondary)" }} />
-                    <span style={{ fontSize: "0.95rem", fontWeight: 500, color: "var(--secondary)" }}>Initializing Camera Scan...</span>
+                  <div style={{ border: "2px dashed var(--border-color)", borderRadius: "16px", padding: "60px 20px", background: "rgba(255, 255, 255, 0.02)", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
+                    <Camera className="animate-pulse" size={32} style={{ color: "var(--primary)" }} />
+                    <span style={{ fontSize: "0.95rem", fontWeight: 500, color: "var(--primary)" }}>Initializing Camera Scan...</span>
                     <p style={{ fontSize: "0.8rem", color: "var(--text-secondary)", maxWidth: "240px" }}>Simulating optical QR alignment. Keep screen facing the camera.</p>
                   </div>
                 ) : (

@@ -90,14 +90,14 @@ function JobRow({ jobId }: { jobId: number }) {
         transition: "all 0.2s",
         gap: "16px",
       }}
-        onMouseEnter={e => (e.currentTarget.style.borderColor = "rgba(99,102,241,0.4)")}
+        onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--primary)")}
         onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
             <span style={{ fontSize: "0.75rem", fontFamily: "Space Grotesk", color: "var(--text-muted)" }}>JOB #{jobId}</span>
             {isPhysical && (
-              <span style={{ fontSize: "0.7rem", background: "rgba(168,85,247,0.1)", color: "var(--secondary)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+              <span style={{ fontSize: "0.7rem", background: "rgba(255,255,255,0.08)", color: "var(--text-primary)", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
                 Meetup
               </span>
             )}

@@ -3,6 +3,7 @@ import React from "react";
 import { Web3Provider } from "@/components/Web3Provider";
 import Link from "next/link";
 import { HeaderWallet } from "@/components/HeaderWallet";
+import HoverFooter from "@/components/ui/hover-footer";
 
 export const metadata = {
   title: "ArcHandshake - Autonomous Escrow & Group Accountant",
@@ -18,7 +19,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Web3Provider>
-          <header className="glass-card main-header">
+          <header className="main-header">
             <Link href="/" className="header-logo">
               ArcHandshake
             </Link>
@@ -35,6 +36,8 @@ export default function RootLayout({
           <main className="dashboard-container">
             {children}
           </main>
+
+          <HoverFooter />
         </Web3Provider>
       </body>
     </html>

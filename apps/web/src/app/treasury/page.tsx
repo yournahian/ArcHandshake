@@ -219,7 +219,7 @@ export default function TreasuryDashboard() {
             </div>
           </div>
           <div style={{
-            background: "rgba(99, 102, 241, 0.1)",
+            background: "rgba(255, 255, 255, 0.08)",
             color: "var(--primary)",
             width: "54px",
             height: "54px",
@@ -237,12 +237,12 @@ export default function TreasuryDashboard() {
           <div>
             <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Active Members</span>
             <div style={{ fontSize: "2.2rem", fontWeight: 800, marginTop: "6px", fontFamily: "Space Grotesk" }}>
-              {membersCount} <span style={{ fontSize: "1.2rem", color: "var(--secondary)" }}>Users</span>
+              {membersCount} <span style={{ fontSize: "1.2rem", color: "var(--primary)" }}>Users</span>
             </div>
           </div>
           <div style={{
-            background: "rgba(168, 85, 247, 0.1)",
-            color: "var(--secondary)",
+            background: "rgba(255, 255, 255, 0.08)",
+            color: "var(--primary)",
             width: "54px",
             height: "54px",
             borderRadius: "14px",
