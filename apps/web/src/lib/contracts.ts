@@ -117,6 +117,30 @@ export const escrowAbi = [
   },
   {
     type: "function",
+    name: "dispute",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "jobId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "resolveDispute",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "jobId", type: "uint256" },
+      { name: "resolution", type: "uint8" }
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "refundExpired",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "jobId", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
     name: "getJob",
     stateMutability: "view",
     inputs: [{ name: "jobId", type: "uint256" }],

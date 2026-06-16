@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits, keccak256, toHex, encodePacked, decodeEventLog } from "viem";
 import { Handshake, HelpCircle, ShieldCheck, QrCode } from "lucide-react";
 import { DEPLOYED_ESCROW_ADDRESS, escrowAbi } from "@/lib/contracts";
 import { ARC_MIN_GAS_PRICE } from "@/lib/wagmi";
-import { trackJobId, setJobType } from "../page";
+import { trackJobId, setJobType } from "@/lib/escrow-tracking";
 import { supabase } from "@/lib/supabase";
 
 // Fallback USDC address on Arc Testnet
@@ -18,7 +18,7 @@ const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x546c8
 
 
 
-export default function CreateEscrow() {
+function CreateEscrowContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { isConnected, address } = useAccount();
@@ -85,7 +85,7 @@ export default function CreateEscrow() {
       console.log("CreateJob Transaction Hash:", txHash);
       
       // Wait for transaction receipt
-      const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+      const receipt = await publicClient!.waitForTransactionReceipt({ hash: txHash });
       if (receipt.status !== "success") {
         throw new Error("Create escrow transaction reverted onchain!");
       }
@@ -124,7 +124,7 @@ export default function CreateEscrow() {
           args: [createdJobId, qrHash],
           gasPrice: ARC_MIN_GAS_PRICE,
         });
-        const qrReceipt = await publicClient.waitForTransactionReceipt({ hash: qrTxHash });
+        const qrReceipt = await publicClient!.waitForTransactionReceipt({ hash: qrTxHash });
         if (qrReceipt.status !== "success") {
           throw new Error("Failed to set physical QR confirmation code onchain!");
         }
@@ -168,7 +168,7 @@ export default function CreateEscrow() {
           args: [createdJobId, budgetUSDC, "0x"],
           gasPrice: ARC_MIN_GAS_PRICE,
         });
-        const setBudgetReceipt = await publicClient.waitForTransactionReceipt({ hash: setBudgetTxHash });
+        const setBudgetReceipt = await publicClient!.waitForTransactionReceipt({ hash: setBudgetTxHash });
         if (setBudgetReceipt.status !== "success") {
           throw new Error("setBudget transaction reverted!");
         }
@@ -234,7 +234,7 @@ export default function CreateEscrow() {
         gasPrice: ARC_MIN_GAS_PRICE,
       });
       
-      const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTxHash });
+      const approveReceipt = await publicClient!.waitForTransactionReceipt({ hash: approveTxHash });
       if (approveReceipt.status !== "success") {
         throw new Error("USDC Approval transaction reverted onchain!");
       }
@@ -250,7 +250,7 @@ export default function CreateEscrow() {
         gasPrice: ARC_MIN_GAS_PRICE,
       });
 
-      const fundReceipt = await publicClient.waitForTransactionReceipt({ hash: fundTxHash });
+      const fundReceipt = await publicClient!.waitForTransactionReceipt({ hash: fundTxHash });
       if (fundReceipt.status !== "success") {
         throw new Error("USDC Funding transaction reverted onchain!");
       }
@@ -498,5 +498,17 @@ export default function CreateEscrow() {
 
       </div>
     </div>
+  );
+}
+
+export default function CreateEscrow() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0a0b10", color: "#ffffff" }}>
+        <div style={{ fontSize: "1.1rem", opacity: 0.8 }}>Loading Escrow Creator...</div>
+      </div>
+    }>
+      <CreateEscrowContent />
+    </Suspense>
   );
 }

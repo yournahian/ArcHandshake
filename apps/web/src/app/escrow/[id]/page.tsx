@@ -8,7 +8,7 @@ import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import { ARC_MIN_GAS_PRICE } from "@/lib/wagmi";
 import { ShieldAlert, ShieldCheck, Download, Upload, AlertCircle, RefreshCw, DollarSign, Wallet } from "lucide-react";
 import confetti from "canvas-confetti";
-import { trackJobId } from "../page";
+import { trackJobId } from "@/lib/escrow-tracking";
 import { supabase } from "@/lib/supabase";
 
 const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x546c8C7A9d3Db29eb0c194Da0c72631F8a717b00";
@@ -363,7 +363,7 @@ export default function EscrowDetail() {
         args: [jobId, amount, "0x"],
         gasPrice: ARC_MIN_GAS_PRICE,
       });
-      await publicClient.waitForTransactionReceipt({ hash: txHash });
+      await publicClient!.waitForTransactionReceipt({ hash: txHash });
       setBudgetInput("");
 
       // Clear negotiation state
@@ -467,7 +467,7 @@ export default function EscrowDetail() {
         args: [DEPLOYED_ESCROW_ADDRESS, budgetRaw],
         gasPrice: ARC_MIN_GAS_PRICE,
       });
-      const approveReceipt = await publicClient.waitForTransactionReceipt({ hash: approveTxHash });
+      const approveReceipt = await publicClient!.waitForTransactionReceipt({ hash: approveTxHash });
       if (approveReceipt.status !== "success") throw new Error("USDC approval reverted!");
 
       // 2. Fund
@@ -476,7 +476,7 @@ export default function EscrowDetail() {
         args: [jobId, "0x"],
         gasPrice: ARC_MIN_GAS_PRICE,
       });
-      const fundReceipt = await publicClient.waitForTransactionReceipt({ hash: fundTxHash });
+      const fundReceipt = await publicClient!.waitForTransactionReceipt({ hash: fundTxHash });
       if (fundReceipt.status !== "success") throw new Error("Funding transaction reverted!");
 
       refetch();
@@ -500,7 +500,7 @@ export default function EscrowDetail() {
         args: [jobId, deliverableHash, "0x"],
         gasPrice: ARC_MIN_GAS_PRICE,
       });
-      await publicClient.waitForTransactionReceipt({ hash: txHash });
+      await publicClient!.waitForTransactionReceipt({ hash: txHash });
 
       let finalFileUrl = fileUrl;
       const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -626,7 +626,7 @@ export default function EscrowDetail() {
           args: [jobId, reasonHash, "0x"],
           gasPrice: ARC_MIN_GAS_PRICE,
         });
-        await publicClient.waitForTransactionReceipt({ hash: txHash });
+        await publicClient!.waitForTransactionReceipt({ hash: txHash });
 
         // Update Supabase if available
         if (hasSupabase) {
@@ -729,7 +729,6 @@ export default function EscrowDetail() {
       const txHash = await writeContractAsync({
         address: DEPLOYED_ESCROW_ADDRESS,
         abi: escrowAbi,
-        //@ts-ignore
         functionName: "dispute",
         args: [jobId],
         gasPrice: ARC_MIN_GAS_PRICE,
@@ -743,22 +742,9 @@ export default function EscrowDetail() {
 
   const handleResolveDispute = async (resolution: number) => {
     try {
-      const disputeAbi = [
-        {
-          type: "function",
-          name: "resolveDispute",
-          stateMutability: "nonpayable",
-          inputs: [
-            { name: "jobId", type: "uint256" },
-            { name: "resolution", type: "uint8" }
-          ],
-          outputs: []
-        }
-      ] as const;
-
       await writeContractAsync({
         address: DEPLOYED_ESCROW_ADDRESS,
-        abi: disputeAbi,
+        abi: escrowAbi,
         functionName: "resolveDispute",
         args: [jobId, resolution],
         gasPrice: ARC_MIN_GAS_PRICE,
@@ -896,7 +882,7 @@ export default function EscrowDetail() {
 
             {/* Display Deliverable Image Preview with Watermark based on status */}
             {(fileUrl || status >= 2) && (
-              <div style={{ position: "relative", width: "100%", height: "240px", background: "#161722", borderRadius: "12px", overflow: "hidden", display: "flex", alignItems: "center", justifyCenter: "center" }}>
+              <div style={{ position: "relative", width: "100%", height: "240px", background: "#161722", borderRadius: "12px", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {/* Simulated mockup image */}
                 <img 
                   src={fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600"} 
