@@ -89,7 +89,7 @@ export default function EscrowDetail() {
   // Load proposed budget from Supabase or localStorage
   useEffect(() => {
     const loadProposed = async () => {
-      if (jobRaw && jobRaw[5] > 0n) {
+      if (jobRaw && jobRaw[5] > BigInt(0)) {
         setProposedBudget(null);
         try {
           localStorage.removeItem(`arc_proposed_budget_${jobId}`);
@@ -448,7 +448,7 @@ export default function EscrowDetail() {
 
   // BUYER: Approve USDC + Fund handler (called after seller has set budget)
   const handleApproveAndFund = async () => {
-    if (budgetRaw === 0n) {
+    if (budgetRaw === BigInt(0)) {
       alert("Seller has not set the budget yet!");
       return;
     }
@@ -823,10 +823,10 @@ export default function EscrowDetail() {
         {/* Budget detail */}
         <div style={{ textAlign: "center", padding: "24px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "16px" }}>
           <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
-            {budgetRaw === 0n && proposedBudget ? "Proposed Budget (Pending Confirmation)" : "Escrow Balance"}
+            {budgetRaw === BigInt(0) && proposedBudget ? "Proposed Budget (Pending Confirmation)" : "Escrow Balance"}
           </span>
-          <div style={{ fontSize: "2.8rem", fontWeight: 800, color: budgetRaw === 0n && proposedBudget ? "var(--warning)" : "var(--text-primary)", fontFamily: "Space Grotesk", marginTop: "4px" }}>
-            {budgetRaw === 0n && proposedBudget ? proposedBudget : budget} <span style={{ fontSize: "1.5rem", fontWeight: 600, color: "var(--primary)" }}>USDC</span>
+          <div style={{ fontSize: "2.8rem", fontWeight: 800, color: budgetRaw === BigInt(0) && proposedBudget ? "var(--warning)" : "var(--text-primary)", fontFamily: "Space Grotesk", marginTop: "4px" }}>
+            {budgetRaw === BigInt(0) && proposedBudget ? proposedBudget : budget} <span style={{ fontSize: "1.5rem", fontWeight: 600, color: "var(--primary)" }}>USDC</span>
           </div>
         </div>
 
@@ -1003,9 +1003,9 @@ export default function EscrowDetail() {
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <DollarSign size={20} style={{ color: "var(--primary)" }} />
                 <span style={{ fontWeight: 600, fontSize: "1.05rem" }}>
-                  {budgetRaw === 0n ? "Set Your Budget (Seller Action)" : "Update Budget"}
+                  {budgetRaw === BigInt(0) ? "Set Your Budget (Seller Action)" : "Update Budget"}
                 </span>
-                {budgetRaw > 0n && (
+                {budgetRaw > BigInt(0) && (
                   <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginLeft: "auto" }}>
                     Currently: <b style={{ color: "var(--primary)" }}>{budget} USDC</b>
                   </span>
@@ -1019,14 +1019,14 @@ export default function EscrowDetail() {
               )}
 
               <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.5 }}>
-                {budgetRaw === 0n
+                {budgetRaw === BigInt(0)
                   ? "The buyer is waiting for you to confirm your price. Enter the USDC amount you want to charge."
                   : "You can update your quoted price as long as the buyer has not funded the escrow yet."}
               </p>
               <div style={{ display: "flex", gap: "10px" }}>
                 <input
                   type="number"
-                  placeholder={budgetRaw > 0n ? `New amount (currently ${budget})` : "Amount in USDC"}
+                  placeholder={budgetRaw > BigInt(0) ? `New amount (currently ${budget})` : "Amount in USDC"}
                   value={budgetInput}
                   onChange={(e) => setBudgetInput(e.target.value)}
                   style={{ flex: 1 }}
@@ -1037,7 +1037,7 @@ export default function EscrowDetail() {
                   disabled={isSettingBudget || !budgetInput}
                   style={{ whiteSpace: "nowrap" }}
                 >
-                  {isSettingBudget ? "Confirming..." : budgetRaw === 0n ? "Confirm Budget" : "Update Budget"}
+                  {isSettingBudget ? "Confirming..." : budgetRaw === BigInt(0) ? "Confirm Budget" : "Update Budget"}
                 </button>
               </div>
             </div>
@@ -1077,7 +1077,7 @@ export default function EscrowDetail() {
           )}
 
           {/* BUYER waiting for budget setup */}
-          {isClient && status === 0 && budgetRaw === 0n && !isNegotiationActive && (
+          {isClient && status === 0 && budgetRaw === BigInt(0) && !isNegotiationActive && (
             <div style={{ padding: "16px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "8px", color: "var(--text-secondary)", fontSize: "0.9rem", textAlign: "center" }}>
               {proposedBudget 
                 ? `Waiting for the seller to confirm or adjust your proposed budget of ${proposedBudget} USDC.`
@@ -1087,7 +1087,7 @@ export default function EscrowDetail() {
           )}
 
           {/* BUYER: Approve & Fund — shown when budget is set but escrow not yet funded */}
-          {isClient && status === 0 && budgetRaw > 0n && !isNegotiationActive && (
+          {isClient && status === 0 && budgetRaw > BigInt(0) && !isNegotiationActive && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               
               <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -1146,14 +1146,14 @@ export default function EscrowDetail() {
           )}
 
           {/* Waiting state — budget not set, viewer is neither client nor provider */}
-          {!isProvider && !isClient && status === 0 && budgetRaw === 0n && (
+          {!isProvider && !isClient && status === 0 && budgetRaw === BigInt(0) && (
             <div style={{ padding: "16px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "8px", color: "var(--text-secondary)", fontSize: "0.9rem", textAlign: "center" }}>
               Waiting for the seller to set their budget before the buyer can fund this escrow.
             </div>
           )}
 
           {/* Waiting state — budget set but viewer is client and not yet funded */}
-          {isProvider && status === 0 && budgetRaw > 0n && !isNegotiationActive && (
+          {isProvider && status === 0 && budgetRaw > BigInt(0) && !isNegotiationActive && (
             <div style={{ padding: "14px 16px", background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.15)", borderRadius: "8px", color: "var(--success)", fontSize: "0.9rem" }}>
               ✅ Budget set to <b>{budget} USDC</b>. Waiting for the buyer to approve and fund the escrow.
             </div>

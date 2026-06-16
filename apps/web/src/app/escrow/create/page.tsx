@@ -91,7 +91,7 @@ function CreateEscrowContent() {
       }
 
       // Parse the actual Job ID from the transaction logs
-      let createdJobId = 1n; // Default fallback
+      let createdJobId = BigInt(1); // Default fallback
       for (const log of receipt.logs) {
         try {
           const decoded = decodeEventLog({
