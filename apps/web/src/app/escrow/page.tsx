@@ -8,48 +8,7 @@ import { formatUnits } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import { Plus, Search, ExternalLink, Clock, ShieldCheck, ShieldAlert } from "lucide-react";
 
-const LS_KEY = "arc_known_job_ids";
-const LS_TYPE_KEY = "arc_job_types"; // { [jobId]: 'physical' | 'digital' }
-
-// Reads known job IDs from localStorage
-function getStoredJobIds(): number[] {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-// Adds a job ID to localStorage tracking
-export function trackJobId(id: number) {
-  if (typeof window === "undefined") return;
-  const existing = getStoredJobIds();
-  if (!existing.includes(id)) {
-    localStorage.setItem(LS_KEY, JSON.stringify([...existing, id].sort((a, b) => b - a)));
-  }
-}
-
-// Store the job type (physical / digital) for a given job ID
-export function setJobType(id: number, type: "physical" | "digital") {
-  if (typeof window === "undefined") return;
-  try {
-    const existing = JSON.parse(localStorage.getItem(LS_TYPE_KEY) || "{}");
-    existing[id] = type;
-    localStorage.setItem(LS_TYPE_KEY, JSON.stringify(existing));
-  } catch {}
-}
-
-// Get the stored type for a job ID (undefined if not known)
-export function getJobType(id: number): "physical" | "digital" | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    const stored = JSON.parse(localStorage.getItem(LS_TYPE_KEY) || "{}");
-    return stored[id];
-  } catch {
-    return undefined;
-  }
-}
+import { getStoredJobIds, trackJobId, setJobType, getJobType } from "@/lib/escrow-tracking";
 
 // Single job row — fetches live data from chain
 function JobRow({ jobId }: { jobId: number }) {
