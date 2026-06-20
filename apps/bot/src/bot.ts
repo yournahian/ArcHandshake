@@ -20,7 +20,10 @@ process.on("unhandledRejection", (reason: any) => {
   }
 });
 
-const token = process.env.TELEGRAM_BOT_TOKEN || "8975237450:AAEEFQi17OPiU9ixo43W1HLZ8WkXe0Xg8mY";
+const token = process.env.TELEGRAM_BOT_TOKEN;
+if (!token) {
+  throw new Error("TELEGRAM_BOT_TOKEN environment variable is not set. Add it to your .env file.");
+}
 const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || "http://localhost:3000";
 
 // Print bot wallet address on startup so it can be set as the AI Evaluator in escrow contracts
