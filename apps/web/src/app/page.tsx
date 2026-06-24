@@ -65,7 +65,7 @@ export default function Home() {
       <DotGlobeHero
         rotationSpeed={0.003}
         globeRadius={1.1}
-        className="bg-gradient-to-br from-background via-background/95 to-muted/10 relative overflow-hidden h-[60vh] sm:h-[85vh] golden-horizon-divider"
+        className="bg-gradient-to-br from-background via-background/95 to-muted/10 relative overflow-hidden min-h-[90vh] sm:min-h-[85vh] py-12 sm:py-20 golden-horizon-divider"
       >
         <div className="absolute inset-0 bg-gradient-to-t from-background/70 via-transparent to-background/30" />
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-pulse" />
@@ -95,7 +95,7 @@ export default function Home() {
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 1, delay: 0.3 }}
-                className="text-3xl sm:text-5xl md:text-7xl lg:text-8xl font-black tracking-tighter leading-[0.9] select-none"
+                className="text-3xl sm:text-5xl md:text-7xl lg:text-8xl font-black tracking-tighter leading-[1.1] sm:leading-[0.9] select-none"
                 style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
               >
                 <span className="block font-light text-foreground/75 mb-2 text-xl sm:text-4xl lg:text-6xl">

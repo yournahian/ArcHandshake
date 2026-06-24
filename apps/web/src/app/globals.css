@@ -81,11 +81,8 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
-  min-height: 100dvh;
-  min-height: -webkit-fill-available;
+  min-height: 100vh;
   overflow-x: hidden;
-  /* Prevent rubber-band / bounce scroll in iOS WebView */
-  overscroll-behavior: none;
 }
 
 /* ── Glassmorphism / Flat Cards ─────────────────────────────────────────────── */
@@ -189,6 +186,7 @@ body {
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   font-family: var(--font-sans);
   /* Larger touch targets on mobile */
@@ -216,6 +214,10 @@ body {
   transition: all 0.2s ease;
   font-family: var(--font-sans);
   min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .btn-secondary:hover {
@@ -477,8 +479,11 @@ label {
 }
 
 /* ── Telegram-specific overrides ─────────────────────────────────────────────── */
+/* These rules ONLY apply when body[data-tg="true"] is set by TelegramProvider.  */
+/* TelegramProvider only sets this attribute when isTelegram() is true —         */
+/* i.e. initData is non-empty — so desktop browsers are never affected.          */
 
-/* Hide the hover footer in Telegram (wastes space, not useful on mobile) */
+/* Hide the hover footer in Telegram (wastes space on mobile) */
 body[data-tg="true"] footer {
   display: none;
 }
@@ -487,6 +492,7 @@ body[data-tg="true"] footer {
 body[data-tg="true"] {
   height: var(--tg-viewport-height, 100dvh);
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body[data-tg="true"] main.dashboard-container {
@@ -496,9 +502,191 @@ body[data-tg="true"] main.dashboard-container {
   overscroll-behavior: contain;
 }
 
+/* ── Treasury page layout ────────────────────────────────────────────────────── */
+
+.treasury-grid {
+  display: grid;
+  /* Desktop: original 2-column layout — left panel narrower, right panel wider */
+  grid-template-columns: 1fr 1.3fr;
+  gap: 28px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .treasury-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+/* Admin panel: 3 equal columns → 1 column on mobile */
+.admin-panel-grid {
+  grid-template-columns: repeat(3, 1fr) !important;
+}
+
+@media (max-width: 768px) {
+  .admin-panel-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 /* ── Utility ─────────────────────────────────────────────────────────────────── */
 
 .golden-horizon-divider {
   border-bottom: 1px solid;
   border-image: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255, 255, 255, 0.15) 50%, rgba(255,255,255,0) 100%) 1;
 }
+
+/* ── Custom Select Arrow ──────────────────────────────────────────────────────── */
+select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E") !important;
+  background-position: right 12px center !important;
+  background-repeat: no-repeat !important;
+  background-size: 20px !important;
+  padding-right: 40px !important;
+}
+
+/* ── Responsive Mobile Helpers ─────────────────────────────────────────────────── */
+
+.responsive-card-padding {
+  padding: 20px 16px !important;
+}
+
+@media (min-width: 640px) {
+  .responsive-card-padding {
+    padding: 32px 40px !important;
+  }
+}
+
+.job-row-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+@media (min-width: 640px) {
+  .job-row-card {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 20px;
+    gap: 16px;
+  }
+}
+
+.job-row-right {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 10px;
+}
+
+@media (min-width: 640px) {
+  .job-row-right {
+    width: auto !important;
+    border-top: none !important;
+    padding-top: 0 !important;
+    justify-content: flex-end !important;
+  }
+}
+
+.section-header-flex {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.section-header-flex span {
+  margin-left: 0 !important;
+}
+
+@media (min-width: 640px) {
+  .section-header-flex {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-header-flex span {
+    margin-left: auto !important;
+  }
+}
+
+.escrow-list-header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .escrow-list-header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+}
+
+.create-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.create-header h1 {
+  font-size: 1.35rem !important;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.create-header p {
+  font-size: 0.8rem !important;
+  margin-top: 2px;
+}
+
+@media (min-width: 640px) {
+  .create-header {
+    gap: 16px;
+  }
+  .create-header h1 {
+    font-size: 1.8rem !important;
+  }
+  .create-header p {
+    font-size: 0.9rem !important;
+  }
+}
+
+.create-form-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 640px) {
+  .create-form-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.treasury-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 768px) {
+  .treasury-cards-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+}
+

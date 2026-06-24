@@ -37,18 +37,8 @@ function JobRow({ jobId }: { jobId: number }) {
 
   return (
     <Link href={`/escrow/${jobId}`} style={{ textDecoration: "none", color: "inherit" }}>
-      <div style={{
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid var(--border-color)",
-        borderRadius: "12px",
-        padding: "18px 20px",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        cursor: "pointer",
-        transition: "all 0.2s",
-        gap: "16px",
-      }}
+      <div 
+        className="job-row-card"
         onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--primary)")}
         onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border-color)")}
       >
@@ -70,11 +60,13 @@ function JobRow({ jobId }: { jobId: number }) {
             Buyer: {client.slice(0, 6)}...{client.slice(-4)} &nbsp;|&nbsp; Seller: {provider.slice(0, 6)}...{provider.slice(-4)}
           </p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
-          <span style={{ fontWeight: 700, fontFamily: "Space Grotesk", fontSize: "0.95rem" }}>
-            {parseFloat(budget) > 0 ? `${budget} USDC` : "—"}
-          </span>
-          <span className={`badge ${badgeClass(status)}`}>{statuses[status]}</span>
+        <div className="job-row-right">
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <span style={{ fontWeight: 700, fontFamily: "Space Grotesk", fontSize: "0.95rem" }}>
+              {parseFloat(budget) > 0 ? `${budget} USDC` : "—"}
+            </span>
+            <span className={`badge ${badgeClass(status)}`}>{statuses[status]}</span>
+          </div>
           <ExternalLink size={14} style={{ color: "var(--text-muted)" }} />
         </div>
       </div>
@@ -105,11 +97,13 @@ function RecentJobs() {
   if (recentIds.length === 0) return null;
 
   return (
-    <div className="glass-card" style={{ padding: "32px 40px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
-        <Activity size={18} style={{ color: "var(--primary)" }} />
-        <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Recent On-Chain Activity</h2>
-        <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+    <div className="glass-card responsive-card-padding">
+      <div className="section-header-flex">
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <Activity size={18} style={{ color: "var(--primary)" }} />
+          <h2 style={{ fontSize: "1.1rem", fontWeight: 600, margin: 0 }}>Recent On-Chain Activity</h2>
+        </div>
+        <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
           {totalJobs} total job{totalJobs !== 1 ? "s" : ""} on-chain
         </span>
       </div>
@@ -144,11 +138,11 @@ export default function EscrowList() {
   };
 
   return (
-    <div style={{ maxWidth: "800px", margin: "0 auto", padding: "20px 0", display: "flex", flexDirection: "column", gap: "24px" }}>
+    <div style={{ maxWidth: "800px", margin: "0 auto", padding: "20px 16px", display: "flex", flexDirection: "column", gap: "24px" }}>
 
       {/* Header */}
-      <div className="glass-card" style={{ padding: "32px 40px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="glass-card responsive-card-padding">
+        <div className="escrow-list-header">
           <div>
             <h1 style={{ fontSize: "1.8rem", fontWeight: 700 }}>OTC Escrows</h1>
             <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginTop: "4px" }}>
@@ -162,7 +156,7 @@ export default function EscrowList() {
       </div>
 
       {/* Seller: Find by Job ID */}
-      <div className="glass-card" style={{ padding: "28px 40px" }}>
+      <div className="glass-card responsive-card-padding">
         <div style={{ marginBottom: "16px" }}>
           <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Find Escrow by Job ID</h2>
           <p style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: "4px" }}>
@@ -185,7 +179,7 @@ export default function EscrowList() {
       </div>
 
       {/* Known Jobs List */}
-      <div className="glass-card" style={{ padding: "32px 40px" }}>
+      <div className="glass-card responsive-card-padding">
         <h2 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "20px" }}>Your Recent Jobs</h2>
 
         {knownIds.length === 0 ? (

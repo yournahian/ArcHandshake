@@ -107,7 +107,7 @@ export default function TreasuryLauncher() {
   }
 
   return (
-    <div style={{ maxWidth: "800px", margin: "40px auto", display: "flex", flexDirection: "column", gap: "36px" }}>
+    <div style={{ maxWidth: "800px", margin: "30px auto", padding: "0 16px", display: "flex", flexDirection: "column", gap: "36px" }}>
 
       {/* Global Transaction Overlay */}
       {txPendingMessage && (
@@ -122,7 +122,7 @@ export default function TreasuryLauncher() {
       )}
 
       {/* Hero Header */}
-      <div className="glass-card" style={{ padding: "40px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
+      <div className="glass-card responsive-card-padding" style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
         <div style={{ background: "rgba(255,255,255,0.06)", width: "70px", height: "70px", borderRadius: "18px", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Landmark size={36} style={{ color: "var(--primary)" }} />
         </div>
@@ -134,10 +134,10 @@ export default function TreasuryLauncher() {
         </p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "24px" }}>
+      <div className="treasury-cards-grid">
         
         {/* Deploy New Treasury Card */}
-        <div className="glass-card" style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "20px" }}>
+        <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <PlusCircle size={20} style={{ color: "var(--primary)" }} />
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>Deploy New Pool</h2>
@@ -149,14 +149,14 @@ export default function TreasuryLauncher() {
             onClick={handleDeploy} 
             disabled={isDeploying} 
             className="btn-primary" 
-            style={{ width: "100%", justifyContent: "center", height: "45px", fontSize: "0.95rem" }}
+            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", height: "45px", fontSize: "0.95rem" }}
           >
             {isDeploying ? "Deploying…" : "Deploy New Treasury"}
           </button>
         </div>
 
         {/* Access Existing Treasury Card */}
-        <div className="glass-card" style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "20px" }}>
+        <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <Settings size={20} style={{ color: "var(--primary)" }} />
             <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>Open Existing Pool</h2>
@@ -176,7 +176,7 @@ export default function TreasuryLauncher() {
             <button 
               type="submit" 
               className="btn-secondary" 
-              style={{ width: "100%", justifyContent: "center", height: "45px", gap: "6px", fontSize: "0.95rem" }}
+              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", height: "45px", gap: "6px", fontSize: "0.95rem" }}
             >
               Open Dashboard <ArrowRight size={16} />
             </button>

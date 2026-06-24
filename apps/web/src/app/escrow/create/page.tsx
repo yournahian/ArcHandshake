@@ -303,36 +303,45 @@ function CreateEscrowContent() {
   };
 
   return (
-    <div style={{ maxWidth: "600px", margin: "0 auto", padding: "20px 0" }}>
-      <div className="glass-card" style={{ padding: "40px", display: "flex", flexDirection: "column", gap: "28px" }}>
+    <div style={{ maxWidth: "600px", margin: "0 auto", padding: "20px 16px" }}>
+      <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
         
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+        <div className="create-header">
           <div style={{
             background: "rgba(255, 255, 255, 0.08)",
             color: "var(--primary)",
-            width: "48px",
-            height: "48px",
+            width: "44px",
+            height: "44px",
             borderRadius: "12px",
             display: "flex",
             alignItems: "center",
-            justifyContent: "center"
+            justifyContent: "center",
+            flexShrink: 0
           }}>
-            <Handshake size={24} />
+            <Handshake size={20} />
           </div>
           <div>
-            <h1 style={{ fontSize: "1.8rem", fontWeight: 700 }}>Initialize Arc Escrow</h1>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>Deploys a secure ERC-8183 escrow contract</p>
+            <h1>Initialize Arc Escrow</h1>
+            <p style={{ color: "var(--text-secondary)" }}>Deploys a secure ERC-8183 escrow contract</p>
           </div>
         </div>
 
         {/* Form Wizard Progress */}
-        <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid var(--border-color)", paddingBottom: "16px" }}>
-          <span style={{ fontWeight: step >= 1 ? 600 : 400, color: step >= 1 ? "var(--primary)" : "var(--text-muted)" }}>1. Configure</span>
+        <div style={{ 
+          display: "flex", 
+          justifyContent: "space-between", 
+          alignItems: "center",
+          borderBottom: "1px solid var(--border-color)", 
+          paddingBottom: "16px",
+          fontSize: "0.8rem",
+          gap: "4px"
+        }}>
+          <span style={{ fontWeight: step >= 1 ? 600 : 400, color: step >= 1 ? "var(--primary)" : "var(--text-muted)", whiteSpace: "nowrap" }}>1. Setup</span>
           <span style={{ color: "var(--text-muted)" }}>&rarr;</span>
-          <span style={{ fontWeight: step >= 3 ? 600 : 400, color: step >= 3 ? "var(--primary)" : "var(--text-muted)" }}>2. Deploy & Approve</span>
+          <span style={{ fontWeight: step >= 3 ? 600 : 400, color: step >= 3 ? "var(--primary)" : "var(--text-muted)", whiteSpace: "nowrap" }}>2. Deposit</span>
           <span style={{ color: "var(--text-muted)" }}>&rarr;</span>
-          <span style={{ fontWeight: step === 5 ? 600 : 400, color: step === 5 ? "var(--success)" : "var(--text-muted)" }}>3. Funded</span>
+          <span style={{ fontWeight: step === 5 ? 600 : 400, color: step === 5 ? "var(--success)" : "var(--text-muted)", whiteSpace: "nowrap" }}>3. Active</span>
         </div>
 
         {step === 1 && (
@@ -341,22 +350,22 @@ function CreateEscrowContent() {
             {/* Escrow Type Selection */}
             <div>
               <label>Escrow Type</label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div className="create-form-row">
                 <button
                   type="button"
                   className={escrowType === "digital" ? "btn-primary" : "btn-secondary"}
                   onClick={() => setEscrowType("digital")}
-                  style={{ display: "flex", justifyContent: "center", gap: "8px" }}
+                  style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", padding: "8px 12px", fontSize: "0.85rem" }}
                 >
-                  <ShieldCheck size={18} /> Digital Work
+                  <ShieldCheck size={16} /> Digital Work
                 </button>
                 <button
                   type="button"
                   className={escrowType === "physical" ? "btn-primary" : "btn-secondary"}
                   onClick={() => setEscrowType("physical")}
-                  style={{ display: "flex", justifyContent: "center", gap: "8px" }}
+                  style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "8px", padding: "8px 12px", fontSize: "0.85rem" }}
                 >
-                  <QrCode size={18} /> In-Person Meetup
+                  <QrCode size={16} /> In-Person Meetup
                 </button>
               </div>
             </div>
@@ -407,7 +416,7 @@ function CreateEscrowContent() {
               />
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+            <div className="create-form-row">
               <div>
                 <label htmlFor="budget">USDC Budget</label>
                 <input

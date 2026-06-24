@@ -746,9 +746,8 @@ export default function TreasuryDashboard() {
         </div>
       )}
 
-      {/* ── Main two-column grid — responsive ─────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "24px", alignItems: "start" }}
-           className="lg:grid-cols-[1fr_1.3fr] md:grid-cols-2">
+      {/* ── Main two-column grid ───────────────────────────────────────────── */}
+      <div className="treasury-grid">
 
         {/* ── Left column: Circle Wallet + Deposit + Direct Spend ──────────── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
@@ -1053,15 +1052,18 @@ export default function TreasuryDashboard() {
           <h2 style={{ fontSize: "1.15rem", fontWeight: 700, marginBottom: "20px", display: "flex", alignItems: "center", gap: "8px" }}>
             <Settings2 size={18} /> Admin Panel <span className="badge badge-info" style={{ marginLeft: "4px" }}>Admin Only</span>
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "24px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", alignItems: "start" }}
+               className="admin-panel-grid">
 
             {/* Add Member */}
-            <div>
-              <h3 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "10px" }}>
+              <h3 style={{ fontSize: "0.9rem", fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
                 <UserPlus size={15} style={{ color: "#10b981" }} /> Add Member
               </h3>
               <form onSubmit={handleAddMember} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 <input type="text" placeholder="0x wallet address" required value={newMemberAddr} onChange={e => setNewMemberAddr(e.target.value)} />
+                {/* Spacer to match 2-input columns */}
+                <div style={{ height: "48px" }} />
                 <button type="submit" className="btn-secondary" disabled={!!txPending || !newMemberAddr}
                   style={{ border: "1px solid rgba(16,185,129,0.3)", color: "#10b981", justifyContent: "center" }}>
                   <UserPlus size={14} /> Add to Group
@@ -1070,12 +1072,14 @@ export default function TreasuryDashboard() {
             </div>
 
             {/* Remove Member */}
-            <div>
-              <h3 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "10px" }}>
+              <h3 style={{ fontSize: "0.9rem", fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
                 <UserMinus size={15} style={{ color: "#ef4444" }} /> Remove Member
               </h3>
               <form onSubmit={handleRemoveMember} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                 <input type="text" placeholder="0x wallet address" required value={removeMemberAddr} onChange={e => setRemoveMemberAddr(e.target.value)} />
+                {/* Spacer to match 2-input columns */}
+                <div style={{ height: "48px" }} />
                 <button type="submit" className="btn-secondary" disabled={!!txPending || !removeMemberAddr}
                   style={{ border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", justifyContent: "center" }}>
                   <UserMinus size={14} /> Remove from Group
@@ -1084,8 +1088,8 @@ export default function TreasuryDashboard() {
             </div>
 
             {/* Set Spending Policy */}
-            <div>
-              <h3 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px", background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "10px" }}>
+              <h3 style={{ fontSize: "0.9rem", fontWeight: 600, margin: 0, display: "flex", alignItems: "center", gap: "6px" }}>
                 <Settings2 size={15} style={{ color: "#f59e0b" }} /> Set Daily Spend Limit
               </h3>
               <form onSubmit={handleSetPolicy} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>

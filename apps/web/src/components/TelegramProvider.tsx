@@ -3,19 +3,24 @@
 /**
  * TelegramProvider
  * ─────────────────────────────────────────────────────────────────────────────
- * Bootstraps the Telegram Mini App WebApp on mount:
- *  • Calls WebApp.ready() and WebApp.expand() to fill the entire viewport
- *  • Sets background/header color to match our dark theme
- *  • Applies TG theme params as CSS variables
- *  • Adds a `data-tg` attribute on <body> so CSS can scope TG-specific styles
- *  • Handles viewport resize events from Telegram
+ * Bootstraps the Telegram Mini App WebApp on mount — but ONLY when actually
+ * running inside the Telegram client (i.e. initData is non-empty).
+ *
+ * On a regular desktop/mobile browser the SDK script may be loaded but
+ * initData will be empty, so we bail out early and leave the normal layout
+ * completely untouched.
  */
 
 import React, { useEffect } from "react";
-import { getTgWebApp, applyTgTheme } from "@/lib/telegram";
+import { getTgWebApp, isTelegram, applyTgTheme } from "@/lib/telegram";
 
 export function TelegramProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
+    // ⚠️  Only activate TG-specific behaviour when actually inside Telegram.
+    // The SDK script is loaded on every page, so getTgWebApp() returns a
+    // non-null object even in a regular browser — but initData will be empty.
+    if (!isTelegram()) return;
+
     const app = getTgWebApp();
     if (!app) return;
 
@@ -35,6 +40,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     applyTgTheme();
 
     // Mark the body so CSS can scope TG-specific rules
+    // This is intentionally NOT set on desktop browsers
     document.body.setAttribute("data-tg", "true");
 
     // Handle viewport resize (e.g. keyboard opening in Telegram)
