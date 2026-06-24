@@ -14,6 +14,7 @@ import {
 import confetti from "canvas-confetti";
 import { waitForReceipt } from "@/lib/utils";
 import { CircleWalletCard } from "@/components/CircleWalletCard";
+import { useTgBackButton } from "@/lib/telegram";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -629,6 +630,9 @@ export default function TreasuryDashboard() {
   const activeProposals       = activeProposalsList.length;
   const executedCount         = executedProposalsList.length;
 
+  // TG Back Button — must be before any conditional returns (Rules of Hooks)
+  useTgBackButton();
+
   if (!mounted) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
@@ -653,8 +657,8 @@ export default function TreasuryDashboard() {
       )}
 
       {/* ── Header Title & Address ────────────────────────────────────────── */}
-      <div className="glass-card" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "8px" }}>
-        <h1 style={{ fontSize: "1.8rem", fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #FFF 0%, #AAA 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+      <div className="glass-card" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
+        <h1 style={{ fontSize: "1.4rem", fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #FFF 0%, #AAA 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
           Group Treasury Pool
         </h1>
         <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)", fontFamily: "Space Grotesk", wordBreak: "break-all" }}>
@@ -663,7 +667,7 @@ export default function TreasuryDashboard() {
       </div>
 
       {/* ── Stats Row ─────────────────────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px" }}>
 
         {/* Pool balance */}
         <div className="glass-card" style={{ padding: "24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -742,8 +746,9 @@ export default function TreasuryDashboard() {
         </div>
       )}
 
-      {/* ── Main two-column grid ───────────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: "28px", alignItems: "start" }}>
+      {/* ── Main two-column grid — responsive ─────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: "24px", alignItems: "start" }}
+           className="lg:grid-cols-[1fr_1.3fr] md:grid-cols-2">
 
         {/* ── Left column: Circle Wallet + Deposit + Direct Spend ──────────── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>

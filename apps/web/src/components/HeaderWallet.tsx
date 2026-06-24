@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { LogOut, Wallet } from "lucide-react";
 
 export function HeaderWallet() {
   const { address, isConnected } = useAccount();
@@ -19,10 +20,11 @@ export function HeaderWallet() {
       <div style={{ position: "relative" }}>
         <button
           className="btn-primary"
-          style={{ padding: "10px 20px", fontSize: "0.9rem" }}
+          style={{ padding: "8px 16px", fontSize: "0.85rem" }}
           disabled
         >
-          Connect Wallet
+          <span className="hidden sm:inline">Connect Wallet</span>
+          <Wallet size={16} className="sm:hidden" />
         </button>
       </div>
     );
@@ -31,18 +33,47 @@ export function HeaderWallet() {
   if (isConnected && address) {
     const formatted = `${address.slice(0, 6)}...${address.slice(-4)}`;
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <span style={{
           fontFamily: "Space Grotesk",
-          fontSize: "0.9rem",
+          fontSize: "0.8rem",
           background: "rgba(255, 255, 255, 0.08)",
           color: "var(--primary)",
-          padding: "6px 12px",
+          padding: "5px 10px",
           borderRadius: "8px",
-          border: "1px solid var(--border-color)"
+          border: "1px solid var(--border-color)",
+          whiteSpace: "nowrap",
         }}>{formatted}</span>
-        <button onClick={() => disconnect()} className="btn-secondary" style={{ padding: "8px 16px", fontSize: "0.9rem" }}>
+
+        {/* Desktop: full text button */}
+        <button
+          onClick={() => disconnect()}
+          className="btn-secondary hidden sm:flex"
+          style={{ padding: "6px 14px", fontSize: "0.85rem" }}
+        >
           Disconnect
+        </button>
+
+        {/* Mobile: compact icon-only button */}
+        <button
+          onClick={() => disconnect()}
+          className="sm:hidden"
+          style={{
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "8px",
+            padding: "6px",
+            cursor: "pointer",
+            color: "hsl(var(--muted-foreground))",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "36px",
+            minWidth: "36px",
+          }}
+          title="Disconnect wallet"
+        >
+          <LogOut size={15} />
         </button>
       </div>
     );
@@ -53,10 +84,15 @@ export function HeaderWallet() {
       <button
         onClick={() => setShowConnectors(!showConnectors)}
         className="btn-primary"
-        style={{ padding: "10px 20px", fontSize: "0.9rem" }}
+        style={{ padding: "8px 16px", fontSize: "0.85rem", minHeight: "36px" }}
         disabled={isPending}
       >
-        {isPending ? "Connecting..." : "Connect Wallet"}
+        {isPending ? "…" : (
+          <>
+            <span className="hidden sm:inline">Connect Wallet</span>
+            <Wallet size={16} className="sm:hidden" />
+          </>
+        )}
       </button>
 
       {showConnectors && (
@@ -72,7 +108,7 @@ export function HeaderWallet() {
           flexDirection: "column",
           gap: "4px",
           minWidth: "180px",
-          zIndex: 100,
+          zIndex: 300,
           boxShadow: "0 8px 32px rgba(0,0,0,0.4)"
         }}>
           {connectors.map((connector) => (

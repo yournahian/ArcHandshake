@@ -10,6 +10,30 @@ const nextConfig = {
     };
     return config;
   },
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          // Allow Telegram Mini App to embed and load scripts from telegram.org
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org https://*.telegram.org",
+              "connect-src 'self' https: wss:",
+              "img-src 'self' data: https: blob:",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "font-src 'self' https://fonts.gstatic.com",
+              "frame-src https://telegram.org https://*.telegram.org",
+            ].join("; "),
+          },
+          // Allow iframe embedding from Telegram
+          { key: "X-Frame-Options", value: "ALLOWALL" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

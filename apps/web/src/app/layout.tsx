@@ -3,13 +3,19 @@ import React from "react";
 import { Web3Provider } from "@/components/Web3Provider";
 import { CircleWalletProvider } from "@/components/CircleWalletContext";
 import { CircleWalletSetup } from "@/components/CircleWalletSetup";
-import Link from "next/link";
-import { HeaderWallet } from "@/components/HeaderWallet";
+import { TelegramProvider } from "@/components/TelegramProvider";
+import { MobileNav } from "@/components/MobileNav";
 import HoverFooter from "@/components/ui/hover-footer";
 
 export const metadata = {
   title: "ArcHandshake - Autonomous Escrow & Group Accountant",
   description: "Secure digital/physical escrows and group finance pools on Arc L1 Blockchain",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -19,33 +25,29 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        {/* Telegram Mini App SDK — loaded synchronously so WebApp is available immediately */}
+        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
+        <script src="https://telegram.org/js/telegram-web-app.js" />
+      </head>
       <body>
-        <Web3Provider>
-          <CircleWalletProvider>
-            {/* Auto-shows PIN setup modal for Telegram users who don't yet have a wallet */}
-            <CircleWalletSetup />
+        <TelegramProvider>
+          <Web3Provider>
+            <CircleWalletProvider>
+              {/* Auto-shows PIN setup modal for Telegram users who don't yet have a wallet */}
+              <CircleWalletSetup />
 
-            <header className="main-header">
-              <Link href="/" className="header-logo">
-                ArcHandshake
-              </Link>
+              {/* Responsive nav: desktop top bar + mobile bottom tab bar */}
+              <MobileNav />
 
-              <nav className="main-nav">
-                <Link href="/escrow" className="nav-link">OTC Escrow</Link>
-                <Link href="/meetup" className="nav-link">Physical Escrow</Link>
-                <Link href="/treasury" className="nav-link">Group Pool</Link>
-              </nav>
+              <main className="dashboard-container">
+                {children}
+              </main>
 
-              <HeaderWallet />
-            </header>
-
-            <main className="dashboard-container">
-              {children}
-            </main>
-
-            <HoverFooter />
-          </CircleWalletProvider>
-        </Web3Provider>
+              <HoverFooter />
+            </CircleWalletProvider>
+          </Web3Provider>
+        </TelegramProvider>
       </body>
     </html>
   );

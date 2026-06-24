@@ -8,6 +8,7 @@ import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import { QrCode, Camera, ShieldCheck, AlertCircle, Copy, Check } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase } from "@/lib/supabase";
+import { useTgBackButton, isTelegram, getTgWebApp } from "@/lib/telegram";
 
 export default function MeetupDetail() {
   const { id } = useParams();
@@ -22,6 +23,9 @@ export default function MeetupDetail() {
   const [isReleasing, setIsReleasing] = useState(false);
   const [secretConfirmationCode, setSecretConfirmationCode] = useState("laptop-received");
   const [submission, setSubmission] = useState<{ fileUrl: string; fileName: string; status: string; result: string } | null>(null);
+
+  // TG Back Button — wired after mount, placed at top per hooks rules
+  useTgBackButton();
 
   const { writeContractAsync } = useWriteContract();
 
@@ -317,14 +321,36 @@ export default function MeetupDetail() {
     }
   };
 
+  // ── TG Main Button — wire after all handlers are defined ────────────────────
+  // Show TG's native bottom button as the primary CTA when running in Telegram
+  useEffect(() => {
+    const app = getTgWebApp();
+    if (!app) return;
+    // Only show for the buyer role (isClient becomes true after jobRaw loads)
+    if (!isClient) {
+      app.MainButton.hide();
+      return;
+    }
+    const btn = app.MainButton;
+    btn.setText(isReleasing ? "Releasing…" : "Approve & Release Funds");
+    btn.show();
+    if (isReleasing) { btn.disable(); btn.showProgress(true); }
+    else             { btn.enable();  btn.hideProgress(); }
+    btn.onClick(handleComplete);
+    return () => {
+      btn.offClick(handleComplete);
+      btn.hide();
+    };
+  }, [isClient, isReleasing]);
+
   return (
-    <div style={{ maxWidth: "600px", margin: "0 auto", padding: "20px 0" }}>
-      <div className="glass-card" style={{ padding: "40px", display: "flex", flexDirection: "column", gap: "32px", textAlign: "center" }}>
+    <div style={{ maxWidth: "600px", margin: "0 auto", padding: "16px 0" }}>
+      <div className="glass-card" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "28px", textAlign: "center" }}>
         
         {/* Title */}
         <div>
           <span style={{ fontSize: "0.85rem", color: "var(--text-muted)", fontFamily: "Space Grotesk" }}>PHYSICAL MEETUP ESCROW: #{id}</span>
-          <h1 style={{ fontSize: "1.8rem", fontWeight: 700, marginTop: "4px" }}>{description}</h1>
+          <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginTop: "4px", lineHeight: 1.2 }}>{description}</h1>
           <p style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--primary)", marginTop: "8px", fontFamily: "Space Grotesk" }}>{budget} USDC</p>
         </div>
 
@@ -400,9 +426,9 @@ export default function MeetupDetail() {
                 <div style={{ background: "rgba(255, 255, 255, 0.05)", border: "1px solid var(--border-color)", padding: "16px", borderRadius: "12px", display: "inline-block" }}>
                   {/* Google Charts QR API generating a code for the confirmation value */}
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(secretConfirmationCode)}`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(secretConfirmationCode)}`}
                     alt="Release QR Code"
-                    style={{ background: "white", padding: "8px", borderRadius: "8px" }}
+                    style={{ background: "white", padding: "8px", borderRadius: "8px", maxWidth: "100%" }}
                   />
                 </div>
                 <div>
@@ -421,15 +447,22 @@ export default function MeetupDetail() {
                   </button>
                 </div>
 
-                {/* Direct Release Button */}
-                <button
-                  onClick={handleComplete}
-                  className="btn-primary"
-                  disabled={isReleasing}
-                  style={{ width: "100%", justifyContent: "center", marginTop: "12px", background: "linear-gradient(135deg, #10B981 0%, #059669 100%)", borderColor: "#10B981" }}
-                >
-                  {isReleasing ? "Releasing Payout..." : "Approve & Release Funds Directly"}
-                </button>
+                {/* Direct Release Button — hidden in Telegram (handled by TG Main Button) */}
+                {!isTelegram() && (
+                  <button
+                    onClick={handleComplete}
+                    className="btn-primary"
+                    disabled={isReleasing}
+                    style={{ width: "100%", justifyContent: "center", marginTop: "12px", background: "linear-gradient(135deg, #10B981 0%, #059669 100%)", borderColor: "#10B981" }}
+                  >
+                    {isReleasing ? "Releasing Payout..." : "Approve & Release Funds Directly"}
+                  </button>
+                )}
+                {isTelegram() && (
+                  <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>
+                    Tap the <strong>Approve & Release</strong> button below to complete the payout.
+                  </p>
+                )}
               </div>
             )}
 

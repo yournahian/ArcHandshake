@@ -59,19 +59,19 @@ export default function Home() {
   };
 
   return (
-    <div className="w-full bg-background text-foreground flex flex-col gap-28 pb-20 overflow-hidden">
+    <div className="w-full bg-background text-foreground flex flex-col gap-16 sm:gap-28 pb-4 sm:pb-20 overflow-hidden">
       
       {/* Hero Section using DotGlobeHero */}
       <DotGlobeHero
         rotationSpeed={0.003}
         globeRadius={1.1}
-        className="bg-gradient-to-br from-background via-background/95 to-muted/10 relative overflow-hidden h-[95vh] golden-horizon-divider"
+        className="bg-gradient-to-br from-background via-background/95 to-muted/10 relative overflow-hidden h-[60vh] sm:h-[85vh] golden-horizon-divider"
       >
         <div className="absolute inset-0 bg-gradient-to-t from-background/70 via-transparent to-background/30" />
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-3xl animate-pulse" />
         <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-primary/3 rounded-full blur-3xl animate-pulse" />
         
-        <div className="relative z-10 text-center space-y-10 max-w-5xl mx-auto px-6 py-6">
+        <div className="relative z-10 text-center space-y-6 sm:space-y-10 max-w-5xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -95,10 +95,10 @@ export default function Home() {
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 1, delay: 0.3 }}
-                className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tighter leading-[0.9] select-none"
+                className="text-3xl sm:text-5xl md:text-7xl lg:text-8xl font-black tracking-tighter leading-[0.9] select-none"
                 style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
               >
-                <span className="block font-light text-foreground/75 mb-2 text-3xl sm:text-5xl lg:text-6xl">
+                <span className="block font-light text-foreground/75 mb-2 text-xl sm:text-4xl lg:text-6xl">
                   Build Real-World
                 </span>
                 <span className="block relative mt-4">
@@ -139,7 +139,7 @@ export default function Home() {
               transition={{ duration: 0.8, delay: 0.6 }}
               className="max-w-3xl mx-auto space-y-4"
             >
-              <p className="text-lg sm:text-xl text-muted-foreground leading-relaxed font-medium">
+              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed font-medium">
                 ArcHandshake provides secure, trustless escrow templates and joint treasury tools for the Arc L1 network. Manage payments with{" "}
                 <span className="text-foreground font-semibold bg-gradient-to-r from-primary/10 to-primary/5 px-2 py-1 rounded-md border border-primary/10">
                   AI verification, QR codes, and group accountant policies
@@ -158,14 +158,15 @@ export default function Home() {
           >
             <input
               type="number"
-              placeholder="Enter Escrow Job ID (e.g. 6)"
+              placeholder="Escrow Job ID (e.g. 6)"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               min="1"
-              className="bg-transparent border-none px-5 py-2 text-foreground focus:outline-none focus:ring-0 w-full text-sm font-medium"
+              className="bg-transparent border-none px-4 sm:px-5 py-2 text-foreground focus:outline-none focus:ring-0 w-full text-sm font-medium"
+              style={{ fontSize: "16px" }}
             />
-            <button type="submit" className="px-6 py-2.5 bg-primary text-primary-foreground font-semibold rounded-full hover:bg-primary/95 transition-all text-xs uppercase tracking-wider">
-              Open Escrow
+            <button type="submit" className="px-4 sm:px-6 py-2.5 bg-primary text-primary-foreground font-semibold rounded-full hover:bg-primary/95 transition-all text-xs uppercase tracking-wider whitespace-nowrap">
+              Open
             </button>
           </motion.form>
 
@@ -174,9 +175,9 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.9 }}
-            className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-2"
+            className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center pt-2 w-full sm:w-auto px-4 sm:px-0"
           >
-            <Link href="/escrow/create" className="no-underline">
+            <Link href="/escrow/create" className="no-underline w-full sm:w-auto">
               <motion.div
                 whileHover={{ 
                   scale: 1.03, 
@@ -184,14 +185,14 @@ export default function Home() {
                   y: -1
                 }}
                 whileTap={{ scale: 0.98 }}
-                className="group relative inline-flex items-center gap-2 px-7 py-3.5 bg-primary text-primary-foreground rounded-lg font-semibold text-sm shadow-xl transition-all duration-300 overflow-hidden border border-primary/20 cursor-pointer"
+                className="group relative inline-flex items-center justify-center gap-2 w-full sm:w-auto px-7 py-3.5 bg-primary text-primary-foreground rounded-lg font-semibold text-sm shadow-xl transition-all duration-300 overflow-hidden border border-primary/20 cursor-pointer"
               >
                 <span className="relative z-10 tracking-wider uppercase">Create Escrow</span>
                 <ArrowRight className="relative z-10 w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
               </motion.div>
             </Link>
             
-            <Link href="/treasury" className="no-underline">
+            <Link href="/treasury" className="no-underline w-full sm:w-auto">
               <motion.div
                 whileHover={{ 
                   scale: 1.03,
@@ -200,7 +201,7 @@ export default function Home() {
                   y: -1
                 }}
                 whileTap={{ scale: 0.98 }}
-                className="group relative inline-flex items-center gap-2 px-7 py-3.5 border border-border/50 rounded-lg font-semibold text-sm transition-all duration-300 backdrop-blur-xl bg-background/30 hover:bg-background/80 shadow-lg cursor-pointer"
+                className="group relative inline-flex items-center justify-center gap-2 w-full sm:w-auto px-7 py-3.5 border border-border/50 rounded-lg font-semibold text-sm transition-all duration-300 backdrop-blur-xl bg-background/30 hover:bg-background/80 shadow-lg cursor-pointer"
               >
                 <Zap className="relative z-10 w-4 h-4 text-primary group-hover:scale-110 transition-all duration-300" />
                 <span className="relative z-10 tracking-wider uppercase text-foreground">Group Pools</span>
@@ -211,10 +212,10 @@ export default function Home() {
       </DotGlobeHero>
 
       {/* Core Use Cases Section */}
-      <section className="max-w-6xl mx-auto px-6 w-full flex flex-col gap-12">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 w-full flex flex-col gap-8 sm:gap-12">
         <div className="text-center space-y-2">
           <span className="text-xs text-primary font-mono uppercase tracking-widest font-bold">Three Core Frameworks</span>
-          <h2 className="text-2xl sm:text-4xl font-extrabold tracking-tight">Purpose-built to support real-world financial flows</h2>
+          <h2 className="text-xl sm:text-4xl font-extrabold tracking-tight">Purpose-built to support real-world financial flows</h2>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -309,8 +310,8 @@ export default function Home() {
       </section>
 
       {/* Stats Section */}
-      <section className="max-w-6xl mx-auto px-6 w-full">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 py-10 border-y border-border/40 bg-card/10 rounded-xl px-8 items-center">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 w-full">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 py-8 border-y border-border/40 bg-card/10 rounded-xl px-4 sm:px-8 items-center">
           <div className="text-left space-y-1">
             <span className="text-[10px] text-primary font-mono uppercase tracking-widest font-bold">Live on Public Testnet</span>
             <h3 className="text-lg font-bold">Arc L1 Settlement Network</h3>
@@ -331,11 +332,11 @@ export default function Home() {
       </section>
 
       {/* Developer Grid Section */}
-      <section className="max-w-6xl mx-auto px-6 w-full flex flex-col gap-12 border-t border-border/20 pt-16">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 w-full flex flex-col gap-8 sm:gap-12 border-t border-border/20 pt-10 sm:pt-16">
         <div className="flex justify-between items-end flex-wrap gap-6">
           <div className="text-left space-y-2">
             <span className="text-xs text-primary font-mono uppercase tracking-widest font-bold">Built on Arc L1</span>
-            <h2 className="text-2xl sm:text-4xl font-extrabold tracking-tight">Real economic activity unleashed</h2>
+            <h2 className="text-xl sm:text-4xl font-extrabold tracking-tight">Real economic activity unleashed</h2>
           </div>
           <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
             ArcHandshake harnesses custom ERC-8183 templates and instant deterministic settlement finality to support complex business workflows without centralized risk.
@@ -388,10 +389,10 @@ export default function Home() {
       </section>
 
       {/* FAQ Section */}
-      <section className="max-w-3xl mx-auto px-6 w-full flex flex-col gap-10 border-t border-border/20 pt-16">
+      <section className="max-w-3xl mx-auto px-4 sm:px-6 w-full flex flex-col gap-6 sm:gap-10 border-t border-border/20 pt-10 sm:pt-16">
         <div className="text-center space-y-2">
           <span className="text-xs text-primary font-mono uppercase tracking-widest font-bold">Frequently Asked Questions</span>
-          <h2 className="text-2xl sm:text-4xl font-extrabold tracking-tight">FAQ</h2>
+          <h2 className="text-xl sm:text-4xl font-extrabold tracking-tight">FAQ</h2>
         </div>
 
         <div className="flex flex-col gap-2">

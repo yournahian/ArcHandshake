@@ -4,6 +4,8 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
+/* ── Design Tokens ───────────────────────────────────────────────────────────── */
+
 :root {
   --background: 0 0% 0%;          /* Pure Black #000000 */
   --foreground: 0 0% 100%;        /* Pure White #ffffff */
@@ -17,7 +19,7 @@
   --primary: 0 0% 100%;           /* Solid White #ffffff */
   --primary-foreground: 0 0% 0%;  /* Solid Black #000000 */
 
-  /* Legacy variables mappings for inline styles */
+  /* Legacy variable mappings for inline styles */
   --border-color: hsl(var(--border));
   --text-muted: hsl(var(--muted-foreground));
   --text-secondary: hsl(var(--muted-foreground));
@@ -25,6 +27,7 @@
   --bg-card: hsl(var(--card));
   --success: #10b981;
   --danger: #ef4444;
+  --warning: #f59e0b;
 
   --secondary: 0 0% 9%;           /* Dark Grey #171717 */
   --secondary-foreground: 0 0% 100%;
@@ -46,23 +49,47 @@
 
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'Space Grotesk', monospace;
+
+  /* Telegram theme overrides (populated by TelegramProvider.tsx) */
+  --tg-viewport-height: 100dvh;
+
+  /* Bottom nav bar height — used for scroll padding */
+  --bottom-nav-height: 68px;
+
+  /* Safe area insets (populated by the device) */
+  --safe-area-top:    env(safe-area-inset-top,    0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left:   env(safe-area-inset-left,   0px);
+  --safe-area-right:  env(safe-area-inset-right,  0px);
 }
+
+/* ── Reset ──────────────────────────────────────────────────────────────────── */
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  /* Use dynamic viewport height so TG WebView doesn't clip content */
+  height: -webkit-fill-available;
 }
 
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
-  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
   overflow-x: hidden;
+  /* Prevent rubber-band / bounce scroll in iOS WebView */
+  overscroll-behavior: none;
 }
 
-/* Glassmorphism / Flat Cards fitted for theme */
+/* ── Glassmorphism / Flat Cards ─────────────────────────────────────────────── */
+
 .glass-card {
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
@@ -77,7 +104,8 @@ body {
   transform: translateY(-1px);
 }
 
-/* Premium Card Overhaul to match design density */
+/* ── Premium Card ────────────────────────────────────────────────────────────── */
+
 .premium-card {
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
@@ -97,7 +125,8 @@ body {
   transform: translateY(-1px);
 }
 
-/* Custom illustration container inside cards */
+/* ── Card Illustration ───────────────────────────────────────────────────────── */
+
 .card-illustration {
   height: 120px;
   width: 100%;
@@ -112,7 +141,8 @@ body {
   margin-bottom: 4px;
 }
 
-/* Centered Input Bar fitted for theme */
+/* ── Hero Input Bar ──────────────────────────────────────────────────────────── */
+
 .hero-input-bar {
   max-width: 500px;
   margin: 24px auto 0;
@@ -129,7 +159,7 @@ body {
   border: none;
   padding: 8px 16px;
   color: hsl(var(--foreground));
-  font-size: 0.9rem;
+  font-size: 1rem; /* Prevent iOS zoom — keep ≥ 16px */
   flex: 1;
 }
 
@@ -145,7 +175,8 @@ body {
   padding: 8px 18px;
 }
 
-/* Buttons */
+/* ── Buttons ─────────────────────────────────────────────────────────────────── */
+
 .btn-primary {
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
@@ -160,6 +191,8 @@ body {
   align-items: center;
   gap: 8px;
   font-family: var(--font-sans);
+  /* Larger touch targets on mobile */
+  min-height: 44px;
 }
 
 .btn-primary:hover {
@@ -182,6 +215,7 @@ body {
   cursor: pointer;
   transition: all 0.2s ease;
   font-family: var(--font-sans);
+  min-height: 44px;
 }
 
 .btn-secondary:hover {
@@ -189,7 +223,8 @@ body {
   border-color: hsla(var(--primary), 0.3);
 }
 
-/* Badges */
+/* ── Badges ──────────────────────────────────────────────────────────────────── */
+
 .badge {
   padding: 4px 10px;
   border-radius: 9999px;
@@ -226,12 +261,23 @@ body {
   border: 1px solid hsla(var(--primary), 0.2);
 }
 
-/* Container */
+/* ── Dashboard Container ─────────────────────────────────────────────────────── */
+
 .dashboard-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 30px 20px;
+  padding: 20px 16px;
+  /* Extra bottom padding on mobile so content clears the bottom tab bar */
+  padding-bottom: calc(20px + var(--bottom-nav-height) + var(--safe-area-bottom));
 }
+
+@media (min-width: 768px) {
+  .dashboard-container {
+    padding: 30px 20px;
+  }
+}
+
+/* ── Form Inputs ─────────────────────────────────────────────────────────────── */
 
 input, textarea, select {
   width: 100%;
@@ -241,8 +287,12 @@ input, textarea, select {
   padding: 12px;
   color: hsl(var(--foreground));
   font-family: var(--font-sans);
-  font-size: 0.9rem;
+  /* iOS zoom prevention: font-size must be ≥ 16px */
+  font-size: 16px;
   transition: all 0.2s ease;
+  /* Improve touch feel */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 input:focus, textarea:focus, select:focus {
@@ -259,7 +309,8 @@ label {
   font-size: 0.8rem;
 }
 
-/* --- Flat Header Overhaul --- */
+/* ── Desktop Header ──────────────────────────────────────────────────────────── */
+
 .main-header {
   width: 100%;
   padding: 14px 40px;
@@ -273,6 +324,7 @@ label {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid hsl(var(--border));
+  transition: box-shadow 0.3s ease;
 }
 
 .header-logo {
@@ -310,29 +362,143 @@ label {
   transition: color 0.2s ease;
 }
 
-.nav-link:hover {
+.nav-link:hover,
+.nav-link-active {
   color: hsl(var(--foreground));
 }
 
-/* Mobile responsive layout fixes */
-@media (max-width: 768px) {
-  .main-header {
-    flex-direction: column;
-    gap: 12px;
-    padding: 14px 20px;
+/* ── Mobile Top Bar ──────────────────────────────────────────────────────────── */
+
+/* Shows only on mobile — replaces the desktop header */
+.mobile-top-bar {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  width: 100%;
+  padding: 10px 16px;
+  padding-top: calc(10px + var(--safe-area-top));
+  background: hsla(var(--background), 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid hsl(var(--border));
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── Desktop Header visibility / Mobile Top Bar toggle ───────────────────────── */
+
+.desktop-header {
+  display: flex;
+}
+
+@media (max-width: 767px) {
+  .desktop-header {
+    display: none !important;
   }
-  
-  .main-nav {
-    gap: 16px;
-    width: 100%;
-    justify-content: center;
-    padding: 8px 0;
-    border-top: 1px solid hsl(var(--border));
+
+  .mobile-top-bar {
+    display: flex;
   }
 }
+
+/* ── Bottom Tab Bar ──────────────────────────────────────────────────────────── */
+
+/* Hidden on desktop, shown on mobile */
+.bottom-tab-bar {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: hsla(0, 0%, 3%, 0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid hsl(var(--border));
+  /* Add bottom safe-area for iPhone home indicator */
+  padding-bottom: var(--safe-area-bottom);
+  height: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
+  flex-direction: row;
+}
+
+@media (max-width: 767px) {
+  .bottom-tab-bar {
+    display: flex;
+  }
+}
+
+.bottom-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 8px 4px;
+  text-decoration: none;
+  color: hsl(var(--muted-foreground));
+  transition: color 0.2s ease;
+  position: relative;
+  min-height: 44px;
+}
+
+.bottom-tab:active {
+  transform: scale(0.93);
+}
+
+.bottom-tab-active {
+  color: hsl(var(--foreground));
+}
+
+.bottom-tab-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bottom-tab-dot {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+}
+
+.bottom-tab-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── Telegram-specific overrides ─────────────────────────────────────────────── */
+
+/* Hide the hover footer in Telegram (wastes space, not useful on mobile) */
+body[data-tg="true"] footer {
+  display: none;
+}
+
+/* In TG, use the TG-reported viewport height to avoid layout bugs */
+body[data-tg="true"] {
+  height: var(--tg-viewport-height, 100dvh);
+  overflow: hidden;
+}
+
+body[data-tg="true"] main.dashboard-container {
+  height: calc(var(--tg-viewport-height, 100dvh) - 60px - var(--bottom-nav-height) - var(--safe-area-bottom));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* ── Utility ─────────────────────────────────────────────────────────────────── */
 
 .golden-horizon-divider {
   border-bottom: 1px solid;
   border-image: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255, 255, 255, 0.15) 50%, rgba(255,255,255,0) 100%) 1;
 }
-
