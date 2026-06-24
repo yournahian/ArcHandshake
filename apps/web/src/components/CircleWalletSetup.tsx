@@ -9,6 +9,7 @@
 
 import React, { useState } from "react";
 import { useCircleWallet } from "./CircleWalletContext";
+import type { WalletStatus } from "./CircleWalletContext";
 import { ShieldCheck, Loader2, AlertCircle, X, Wallet, ArrowRight } from "lucide-react";
 
 export function CircleWalletSetup() {
@@ -19,6 +20,10 @@ export function CircleWalletSetup() {
   // Only show when setup is required and not dismissed
   if (dismissed || status === "idle" || status === "ready") return null;
   if (wallet?.state === "LIVE") return null;
+
+  // Re-assert the full WalletStatus union after the early-return guards above
+  // (TypeScript narrows 'ready' out — this cast restores it for the JSX below)
+  const currentStatus = status as WalletStatus;
 
   const handleSetup = async () => {
     setSetting(true);
@@ -213,7 +218,7 @@ export function CircleWalletSetup() {
           </>
         )}
 
-        {status === "ready" && (
+        {currentStatus === "ready" && (
           <>
             <h2 style={{ margin: 0, fontSize: "1.3rem", fontWeight: 700, color: "#10b981" }}>
               Wallet Ready! 🎉
