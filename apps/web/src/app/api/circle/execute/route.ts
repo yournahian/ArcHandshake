@@ -7,7 +7,7 @@ const CIRCLE_API_KEY  = process.env.CIRCLE_API_KEY!;
 // POST /api/circle/execute
 // Body: { userToken, walletId, contractAddress, abiFunctionSignature, abiParameters, feeLevel? }
 // Prepares a smart-contract-execution challenge. The frontend SDK runs the challenge (PIN popup),
-// then Circle broadcasts the signed transaction to the EVM-TESTNET chain.
+// then Circle broadcasts the signed transaction to the ARC-TESTNET chain.
 export async function POST(req: NextRequest) {
   try {
     const {

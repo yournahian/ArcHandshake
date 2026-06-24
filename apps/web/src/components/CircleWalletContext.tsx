@@ -5,7 +5,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Provides auto-provisioned, user-controlled wallets via Circle's Programmable
  * Wallet infrastructure. When a Telegram user opens the Mini App, we
- * transparently create a Circle user + EVM-TESTNET EOA wallet for them —
+ * transparently create a Circle user + ARC-TESTNET EOA wallet for them —
  * secured by a 6-digit PIN managed by Circle's MPC backend.
  *
  * Users can later withdraw funds to MetaMask or any external address.

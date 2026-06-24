@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         idempotencyKey,
-        blockchains: ["EVM-TESTNET"],
+        blockchains: ["ARC-TESTNET"],
         // Wallet type: EOA (compatible with generic EVM chains like Arc Testnet)
         accountType: "EOA",
       }),
@@ -50,12 +50,13 @@ export async function POST(req: NextRequest) {
 
 // GET /api/circle/wallet?userToken=xxx
 // Returns the user's wallets from Circle.
+// Fetch wallets specifically bound to ARC-TESTNET.
 export async function GET(req: NextRequest) {
   try {
     const userToken = req.nextUrl.searchParams.get("userToken");
     if (!userToken) return NextResponse.json({ error: "userToken is required" }, { status: 400 });
 
-    const res = await fetch(`${CIRCLE_API_BASE}/wallets?blockchain=EVM-TESTNET`, {
+    const res = await fetch(`${CIRCLE_API_BASE}/wallets?blockchain=ARC-TESTNET`, {
       method: "GET",
       headers: {
         Authorization:  `Bearer ${CIRCLE_API_KEY}`,

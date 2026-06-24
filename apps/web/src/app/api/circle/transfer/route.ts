@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       userToken,
       walletId,
       destinationAddress,
-      tokenId,             // Circle token ID for USDC on EVM-TESTNET
+      tokenId,             // Circle token ID for USDC on ARC-TESTNET
       amount,              // Amount in smallest unit (e.g., "1000000" for 1 USDC with 6 decimals)
       feeLevel = "MEDIUM",
     } = await req.json();
