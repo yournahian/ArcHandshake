@@ -489,6 +489,19 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
 
+  // Save user registration mapping (username -> chat_id) in Supabase if username exists
+  if (msg.from?.username) {
+    const uname = msg.from.username.toLowerCase();
+    try {
+      await supabase.from("telegram_users").upsert({
+        username: uname,
+        chat_id: msg.chat.id,
+      });
+    } catch (err) {
+      console.error(`Failed to register Telegram user @${uname} in DB:`, err);
+    }
+  }
+
   // Ignore commands
   if (!text || text.startsWith("/")) return;
 
@@ -516,10 +529,49 @@ bot.on("message", async (msg) => {
         type: itemType || "digital"
       });
 
-      bot.sendMessage(chatId, reply, {
+      await bot.sendMessage(chatId, reply, {
         parse_mode: "Markdown",
         ...getButtonMarkup(`🔒 Lock Escrow (${amount || 0} USDC)`, `/escrow/create?${queryParams.toString()}`)
       });
+
+      // Attempt to notify the seller directly
+      const sellerUsername = seller.replace("@", "").toLowerCase().trim();
+      let notifiedSeller = false;
+      try {
+        const { data: userData } = await supabase
+          .from("telegram_users")
+          .select("chat_id")
+          .eq("username", sellerUsername)
+          .maybeSingle();
+
+        if (userData && userData.chat_id) {
+          const sellerChatId = userData.chat_id;
+          let sellerNotice = `🔔 *New Escrow Proposed to You!*\n\n`;
+          sellerNotice += `👤 *Buyer*: @${msg.from?.username || "buyer"}\n`;
+          sellerNotice += `💰 *Budget*: ${amount || "Not specified"} USDC\n`;
+          sellerNotice += `📋 *Description*: \"${taskDescription || "ArcHandshake Contract"}\"\n\n`;
+          sellerNotice += `Click below to view the specifications and accept the deal:`;
+
+          await bot.sendMessage(sellerChatId, sellerNotice, {
+            parse_mode: "Markdown",
+            ...getButtonMarkup(`🔒 View/Lock Escrow`, `/escrow/create?${queryParams.toString()}`)
+          });
+          notifiedSeller = true;
+          console.log(`[Notification] Seller @${sellerUsername} notified of proposal at chat ID: ${sellerChatId}`);
+        }
+      } catch (err) {
+        console.error(`Failed to send direct notification to seller @${sellerUsername}:`, err);
+      }
+
+      if (notifiedSeller) {
+        await bot.sendMessage(chatId, `✉️ Direct notification sent to seller @${sellerUsername}!`);
+      } else {
+        await bot.sendMessage(
+          chatId,
+          `ℹ️ _Note: I couldn't direct message the seller @${sellerUsername}. Ask them to start the bot (@ArcHandshakeBot) to receive direct deal notifications._`,
+          { parse_mode: "Markdown" }
+        );
+      }
     } else if (analysis.intent === "CREATE_PROPOSAL") {
       const { amount, recipient, taskDescription } = analysis.params;
       

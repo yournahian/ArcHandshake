@@ -1,6 +1,8 @@
 import "./globals.css";
 import React from "react";
 import { Web3Provider } from "@/components/Web3Provider";
+import { CircleWalletProvider } from "@/components/CircleWalletContext";
+import { CircleWalletSetup } from "@/components/CircleWalletSetup";
 import Link from "next/link";
 import { HeaderWallet } from "@/components/HeaderWallet";
 import HoverFooter from "@/components/ui/hover-footer";
@@ -19,25 +21,30 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Web3Provider>
-          <header className="main-header">
-            <Link href="/" className="header-logo">
-              ArcHandshake
-            </Link>
+          <CircleWalletProvider>
+            {/* Auto-shows PIN setup modal for Telegram users who don't yet have a wallet */}
+            <CircleWalletSetup />
 
-            <nav className="main-nav">
-              <Link href="/escrow" className="nav-link">OTC Escrow</Link>
-              <Link href="/meetup" className="nav-link">Physical Escrow</Link>
-              <Link href="/treasury" className="nav-link">Group Pool</Link>
-            </nav>
+            <header className="main-header">
+              <Link href="/" className="header-logo">
+                ArcHandshake
+              </Link>
 
-            <HeaderWallet />
-          </header>
+              <nav className="main-nav">
+                <Link href="/escrow" className="nav-link">OTC Escrow</Link>
+                <Link href="/meetup" className="nav-link">Physical Escrow</Link>
+                <Link href="/treasury" className="nav-link">Group Pool</Link>
+              </nav>
 
-          <main className="dashboard-container">
-            {children}
-          </main>
+              <HeaderWallet />
+            </header>
 
-          <HoverFooter />
+            <main className="dashboard-container">
+              {children}
+            </main>
+
+            <HoverFooter />
+          </CircleWalletProvider>
         </Web3Provider>
       </body>
     </html>

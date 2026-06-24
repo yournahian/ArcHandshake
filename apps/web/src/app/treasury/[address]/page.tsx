@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { waitForReceipt } from "@/lib/utils";
+import { CircleWalletCard } from "@/components/CircleWalletCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -744,8 +745,11 @@ export default function TreasuryDashboard() {
       {/* ── Main two-column grid ───────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: "28px", alignItems: "start" }}>
 
-        {/* ── Left column: Deposit + Direct Spend ───────────────────────── */}
+        {/* ── Left column: Circle Wallet + Deposit + Direct Spend ──────────── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+
+          {/* Circle Wallet — auto-hidden for non-Telegram users */}
+          <CircleWalletCard />
 
           {/* Deposit */}
           <div className="glass-card" style={{ padding: "28px" }}>
