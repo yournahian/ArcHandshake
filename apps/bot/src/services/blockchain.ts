@@ -8,7 +8,10 @@ dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 const RPC_URL = process.env.ARC_RPC_URL || "https://rpc.testnet.arc.network";
-const PRIVATE_KEY = process.env.BOT_PRIVATE_KEY || "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const PRIVATE_KEY = process.env.BOT_PRIVATE_KEY;
+if (!PRIVATE_KEY) {
+  throw new Error("BOT_PRIVATE_KEY environment variable is not set. Add it to your .env file.");
+}
 
 // Define the custom Arc Testnet chain matching viem standards
 export const arcTestnet = {
@@ -131,25 +134,71 @@ export const escrowAbi = [
 ] as const;
 
 export const treasuryAbi = [
+  { type: "function", name: "getBalance",      stateMutability: "view", inputs: [],                                     outputs: [{ type: "uint256" }] },
+  { type: "function", name: "getMembersCount", stateMutability: "view", inputs: [],                                     outputs: [{ type: "uint256" }] },
+  { type: "function", name: "nextProposalId",  stateMutability: "view", inputs: [],                                     outputs: [{ type: "uint256" }] },
   {
-    type: "function",
-    name: "getBalance",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    type: "function",
-    name: "getMembersCount",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
+    type: "function", name: "proposals", stateMutability: "view",
+    inputs: [{ name: "id", type: "uint256" }],
+    outputs: [
+      { name: "id",             type: "uint256" },
+      { name: "proposer",       type: "address" },
+      { name: "recipient",      type: "address" },
+      { name: "amount",         type: "uint256" },
+      { name: "description",    type: "string"  },
+      { name: "votesFor",       type: "uint256" },
+      { name: "votesAgainst",   type: "uint256" },
+      { name: "votingDeadline", type: "uint256" },
+      { name: "executed",       type: "bool"    },
+      { name: "rejected",       type: "bool"    },
+    ],
   },
 ] as const;
 
-// Deployed Addresses placeholders (to be updated after deployment)
-export const DEPLOYED_ESCROW_ADDRESS = (process.env.ESCROW_ADDRESS || "0x0747EEf0706327138c69792bF28Cd525089e4583") as `0x${string}`;
-export const DEPLOYED_TREASURY_ADDRESS = (process.env.TREASURY_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`;
+// Deployed Addresses
+export const DEPLOYED_ESCROW_ADDRESS   = (process.env.ESCROW_ADDRESS   || "0x40aC372780Db3772E1810A515b8D0b71081902be") as `0x${string}`;
+export const DEPLOYED_TREASURY_ADDRESS = (process.env.TREASURY_ADDRESS || "0x29984fd25B15Cd271e4ebAD350a2Ca2269a65304") as `0x${string}`;
+
+/**
+ * Fetches live treasury stats: balance, member count, active proposal count.
+ */
+export async function getTreasuryStats(customAddress?: string) {
+  const targetAddress = (customAddress || DEPLOYED_TREASURY_ADDRESS) as `0x${string}`;
+  try {
+    const [balanceRaw, membersCountRaw, nextIdRaw] = await Promise.all([
+      publicClient.readContract({ address: targetAddress, abi: treasuryAbi, functionName: "getBalance" }),
+      publicClient.readContract({ address: targetAddress, abi: treasuryAbi, functionName: "getMembersCount" }),
+      publicClient.readContract({ address: targetAddress, abi: treasuryAbi, functionName: "nextProposalId" }),
+    ]);
+
+    const balance        = (Number(balanceRaw as bigint) / 1e6).toFixed(2);
+    const members        = Number(membersCountRaw as bigint);
+    const nextId         = Number(nextIdRaw as bigint);
+    const totalProposals = nextId - 1;
+
+    // Count active proposals (not executed, not rejected, deadline not passed)
+    let active = 0;
+    const now = Math.floor(Date.now() / 1000);
+    for (let i = 1; i <= totalProposals; i++) {
+      try {
+        const p = await publicClient.readContract({
+          address: targetAddress,
+          //@ts-ignore
+          abi: treasuryAbi,
+          functionName: "proposals",
+          args: [BigInt(i)],
+        }) as readonly [bigint, string, string, bigint, string, bigint, bigint, bigint, boolean, boolean];
+        if (!p[8] && !p[9] && Number(p[7]) > now) active++;
+      } catch { /* skip */ }
+    }
+
+    return { balance, members, totalProposals, active };
+  } catch (error) {
+    console.error("Failed to fetch treasury stats:", error);
+    return null;
+  }
+}
+
 
 /**
  * Gets the status and description of an onchain job

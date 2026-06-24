@@ -33,6 +33,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
   try {
     const res = await fetch(`http://localhost:4000/api/submissions/${id}`, {
       cache: "no-store",
+      signal: AbortSignal.timeout(1000),
     });
     if (!res.ok) {
       return NextResponse.json({ error: "No submission found" }, { status: 404 });

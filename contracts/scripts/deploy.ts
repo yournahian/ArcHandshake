@@ -13,13 +13,13 @@ async function main() {
   const escrowAddress = await escrow.getAddress();
   console.log(`ArcHandshakeEscrow deployed to: ${escrowAddress}`);
 
-  // 2. Deploy ArcGroupTreasury
-  console.log("Deploying ArcGroupTreasury...");
-  const TreasuryFactory = await ethers.getContractFactory("ArcGroupTreasury");
-  const treasury = await TreasuryFactory.deploy(USDC_ADDRESS);
-  await treasury.waitForDeployment();
-  const treasuryAddress = await treasury.getAddress();
-  console.log(`ArcGroupTreasury deployed to: ${treasuryAddress}`);
+  // 2. Deploy ArcGroupTreasuryFactory
+  console.log("Deploying ArcGroupTreasuryFactory...");
+  const FactoryContract = await ethers.getContractFactory("ArcGroupTreasuryFactory");
+  const factory = await FactoryContract.deploy();
+  await factory.waitForDeployment();
+  const factoryAddress = await factory.getAddress();
+  console.log(`ArcGroupTreasuryFactory deployed to: ${factoryAddress}`);
 
   console.log("Deployment finished successfully!");
 }

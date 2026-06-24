@@ -6,9 +6,9 @@ import { useAccount, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits, keccak256, toHex, encodePacked, decodeEventLog } from "viem";
 import { Handshake, HelpCircle, ShieldCheck, QrCode } from "lucide-react";
 import { DEPLOYED_ESCROW_ADDRESS, escrowAbi } from "@/lib/contracts";
-import { ARC_MIN_GAS_PRICE } from "@/lib/wagmi";
 import { trackJobId, setJobType } from "@/lib/escrow-tracking";
 import { supabase } from "@/lib/supabase";
+import { waitForReceipt } from "@/lib/utils";
 
 // Fallback USDC address on Arc Testnet
 const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
@@ -39,6 +39,9 @@ function CreateEscrowContent() {
   const [jobId, setJobId] = useState<bigint | null>(null);
   const [isTxPending, setIsTxPending] = useState(false);
   const [isAlsoProvider, setIsAlsoProvider] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [isPollingBudget, setIsPollingBudget] = useState(false);
+  const [budgetFound, setBudgetFound] = useState(false);
 
   const { writeContractAsync } = useWriteContract();
 
@@ -55,12 +58,50 @@ function CreateEscrowContent() {
     if (typeParam === "physical") setEscrowType("physical");
   }, [searchParams]);
 
+  // Poll on-chain budget when waiting for seller (Step 2)
+  useEffect(() => {
+    if (step !== 2 || !jobId || budgetFound) return;
+    setIsPollingBudget(true);
+
+    const pollInterval = setInterval(async () => {
+      try {
+        // We don't have publicClient here directly, use a simple RPC fetch
+        // Route to the escrow detail page which handles funding
+        const res = await fetch(`/api/submissions/${jobId.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          // If the budget changed from Negotiation to something else, seller acted
+          if (data && data.status && data.status !== "Negotiation") {
+            setBudgetFound(true);
+            setIsPollingBudget(false);
+            clearInterval(pollInterval);
+            router.push(`/escrow/${jobId.toString()}`);
+          }
+        }
+      } catch (e) {
+        // API offline — ignore polling errors silently
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(pollInterval);
+      setIsPollingBudget(false);
+    };
+  }, [step, jobId, budgetFound, router]);
+
   const handleCreateJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isConnected) {
       alert("Please connect your wallet first!");
       return;
     }
+
+    // Validate provider is a proper 0x address
+    if (!/^0x[a-fA-F0-9]{40}$/.test(provider)) {
+      setProviderError("Provider must be a valid wallet address (0x...). Ask the seller for their wallet address.");
+      return;
+    }
+    setProviderError(null);
 
     setIsTxPending(true);
     try {
@@ -79,13 +120,12 @@ function CreateEscrowContent() {
           description,
           "0x0000000000000000000000000000000000000000" as `0x${string}`
         ],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
 
       console.log("CreateJob Transaction Hash:", txHash);
       
       // Wait for transaction receipt
-      const receipt = await publicClient!.waitForTransactionReceipt({ hash: txHash });
+      const receipt = await waitForReceipt(publicClient!, txHash);
       if (receipt.status !== "success") {
         throw new Error("Create escrow transaction reverted onchain!");
       }
@@ -122,9 +162,8 @@ function CreateEscrowContent() {
           abi: escrowAbi,
           functionName: "setQrConfirmation",
           args: [createdJobId, qrHash],
-          gasPrice: ARC_MIN_GAS_PRICE,
         });
-        const qrReceipt = await publicClient!.waitForTransactionReceipt({ hash: qrTxHash });
+        const qrReceipt = await waitForReceipt(publicClient!, qrTxHash);
         if (qrReceipt.status !== "success") {
           throw new Error("Failed to set physical QR confirmation code onchain!");
         }
@@ -166,9 +205,8 @@ function CreateEscrowContent() {
           abi: escrowAbi,
           functionName: "setBudget",
           args: [createdJobId, budgetUSDC, "0x"],
-          gasPrice: ARC_MIN_GAS_PRICE,
         });
-        const setBudgetReceipt = await publicClient!.waitForTransactionReceipt({ hash: setBudgetTxHash });
+        const setBudgetReceipt = await waitForReceipt(publicClient!, setBudgetTxHash);
         if (setBudgetReceipt.status !== "success") {
           throw new Error("setBudget transaction reverted!");
         }
@@ -231,10 +269,9 @@ function CreateEscrowContent() {
         abi: approveAbi,
         functionName: "approve",
         args: [DEPLOYED_ESCROW_ADDRESS, budgetUSDC],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
       
-      const approveReceipt = await publicClient!.waitForTransactionReceipt({ hash: approveTxHash });
+      const approveReceipt = await waitForReceipt(publicClient!, approveTxHash);
       if (approveReceipt.status !== "success") {
         throw new Error("USDC Approval transaction reverted onchain!");
       }
@@ -247,10 +284,9 @@ function CreateEscrowContent() {
         abi: escrowAbi,
         functionName: "fund",
         args: [jobId, "0x"],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
 
-      const fundReceipt = await publicClient!.waitForTransactionReceipt({ hash: fundTxHash });
+      const fundReceipt = await waitForReceipt(publicClient!, fundTxHash);
       if (fundReceipt.status !== "success") {
         throw new Error("USDC Funding transaction reverted onchain!");
       }
@@ -334,8 +370,19 @@ function CreateEscrowContent() {
                 placeholder="0x..."
                 required
                 value={provider}
-                onChange={(e) => setProvider(e.target.value)}
+                onChange={(e) => { setProvider(e.target.value); setProviderError(null); }}
+                style={providerError ? { borderColor: "var(--danger)" } : undefined}
               />
+              {providerError && (
+                <p style={{ color: "var(--danger)", fontSize: "0.8rem", marginTop: "6px", lineHeight: 1.4 }}>
+                  ⚠️ {providerError}
+                </p>
+              )}
+              {provider && provider.startsWith("@") && (
+                <p style={{ color: "var(--warning)", fontSize: "0.8rem", marginTop: "6px", lineHeight: 1.4 }}>
+                  ℹ️ Telegram usernames can't be used here — you need the seller's <b>wallet address</b> (e.g. <code>0xAbCd...</code>). Ask them to share it.
+                </p>
+              )}
             </div>
 
             <div>
@@ -426,7 +473,7 @@ function CreateEscrowContent() {
             <div style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)", borderRadius: "12px", padding: "24px" }}>
               <h3 style={{ fontSize: "1.25rem", fontWeight: 600, marginBottom: "8px" }}>✅ Job #{jobId.toString()} Created!</h3>
               <p style={{ color: "var(--text-secondary)", lineHeight: 1.6, fontSize: "0.9rem" }}>
-                The escrow job is live onchain. However, the <b>seller must set the budget</b> before you can fund it.
+                The escrow job is live onchain. The <b>seller must set the budget</b> before you can fund it.
               </p>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", textAlign: "left" }}>
@@ -435,12 +482,20 @@ function CreateEscrowContent() {
                 <div style={{ fontFamily: "Space Grotesk", fontSize: "1.4rem", fontWeight: 700, color: "var(--primary)", marginTop: "4px" }}>#{jobId.toString()}</div>
               </div>
               <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                Ask the seller to visit the escrow page, connect their wallet, and confirm the budget. Once they do, return here to fund it.
+                Share this Job ID with the seller. Once they connect their wallet at the escrow page and confirm their price, you will be taken directly to fund it.
               </p>
+              {isPollingBudget && (
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 14px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "8px", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                  <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: "#f59e0b", animation: "pulse 1.5s infinite" }} />
+                  Watching for seller's budget confirmation...
+                </div>
+              )}
             </div>
-            <a href={`/escrow/${jobId.toString()}`} className="btn-secondary" style={{ width: "100%", justifyContent: "center", textDecoration: "none" }}>
-              View Escrow #{jobId.toString()} →
-            </a>
+            <div style={{ display: "flex", gap: "10px" }}>
+              <a href={`/escrow/${jobId.toString()}`} className="btn-primary" style={{ flex: 1, justifyContent: "center", textDecoration: "none" }}>
+                Open Escrow #{jobId.toString()} →
+              </a>
+            </div>
           </div>
         )}
 

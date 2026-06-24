@@ -1,7 +1,10 @@
 import TelegramBot from "node-telegram-bot-api";
 import express from "express";
-import { parseMessageIntent } from "./services/ai.js";
-import { getJobDetails, releaseEscrow, rejectSubmission, publicClient, account } from "./services/blockchain.js";
+import dns from "dns";
+dns.setDefaultResultOrder("ipv4first");
+
+import { parseMessageIntent, verifyDeliverable } from "./services/ai.js";
+import { getJobDetails, releaseEscrow, rejectSubmission, getTreasuryStats, publicClient, account } from "./services/blockchain.js";
 import { keccak256, toHex } from "viem";
 import { supabase } from "./services/supabase.js";
 import * as dotenv from "dotenv";
@@ -110,24 +113,16 @@ async function syncOfflineState() {
       if (sub.status === "Pending Verification" && onChainStatus === 1) { // Funded
         console.log(`🤖 Processing pending submission for Job #${sub.job_id} on startup...`);
         const jobDescription = job[4];
-        const fileExtension = sub.file_name?.split(".").pop() || "";
-        let isApproved = false;
-        let reason = "";
+        const result = await verifyDeliverable(sub.file_url || "", sub.file_name || "deliverable", jobDescription);
+        const aiLabel = result.usedAI ? "🤖 Gemini AI" : "📏 Heuristic";
 
-        if (jobDescription.toLowerCase().includes("svg") && fileExtension.toLowerCase() !== "svg") {
-          reason = `Required file type: SVG. Uploaded file: ${fileExtension}.`;
-        } else {
-          isApproved = true;
-          reason = "Deliverable matches all parameters in the agreed spec sheet.";
-        }
-
-        if (isApproved) {
+        if (result.isApproved) {
           const reasonHash = keccak256(toHex("AI_APPROVED"));
           const txHash = await releaseEscrow(jobId, reasonHash);
-          await updateDbStatus(sub.job_id, "Approved", `Verification passed! ${reason} Tx Hash: ${txHash}`);
+          await updateDbStatus(sub.job_id, "Approved", `${aiLabel} Verification passed! ${result.reason} Tx Hash: ${txHash}`);
         } else {
           const reasonHash = keccak256(toHex("AI_REJECTED"));
-          await updateDbStatus(sub.job_id, "Rejected", `Verification failed! ${reason}`);
+          await updateDbStatus(sub.job_id, "Rejected", `${aiLabel} Verification failed! ${result.reason}`);
           await rejectSubmission(jobId, reasonHash);
         }
       }
@@ -164,26 +159,18 @@ function listenToSupabaseRealtime() {
 
           // Run AI check if newly inserted from web
           if (newRow.status === "Pending Verification" && onChainStatus === 1) {
-            console.log(`⚡ Realtime Event: Running AI verification for Job #${newRow.job_id}...`);
+            console.log(`⚡ Realtime Event: Running Gemini AI verification for Job #${newRow.job_id}...`);
             const jobDescription = job[4];
-            const fileExtension = newRow.file_name?.split(".").pop() || "";
-            let isApproved = false;
-            let reason = "";
+            const result = await verifyDeliverable(newRow.file_url || "", newRow.file_name || "deliverable", jobDescription);
+            const aiLabel = result.usedAI ? "🤖 Gemini AI" : "📏 Heuristic";
 
-            if (jobDescription.toLowerCase().includes("svg") && fileExtension.toLowerCase() !== "svg") {
-              reason = `Required file type: SVG. Uploaded file: ${fileExtension}.`;
-            } else {
-              isApproved = true;
-              reason = "Deliverable matches all parameters in the agreed spec sheet.";
-            }
-
-            if (isApproved) {
+            if (result.isApproved) {
               const reasonHash = keccak256(toHex("AI_APPROVED"));
               const txHash = await releaseEscrow(jobId, reasonHash);
-              await updateDbStatus(newRow.job_id, "Approved", `Verification passed! ${reason} Tx Hash: ${txHash}`);
+              await updateDbStatus(newRow.job_id, "Approved", `${aiLabel} Verification passed! ${result.reason} Tx Hash: ${txHash}`);
             } else {
               const reasonHash = keccak256(toHex("AI_REJECTED"));
-              await updateDbStatus(newRow.job_id, "Rejected", `Verification failed! ${reason}`);
+              await updateDbStatus(newRow.job_id, "Rejected", `${aiLabel} Verification failed! ${result.reason}`);
               await rejectSubmission(jobId, reasonHash);
             }
           }
@@ -194,6 +181,28 @@ function listenToSupabaseRealtime() {
             const reasonHash = keccak256(toHex("BUYER_MANUAL_APPROVED"));
             const txHash = await releaseEscrow(jobId, reasonHash);
             await updateDbStatus(newRow.job_id, "Approved", `Escrow payment released manually by buyer. Tx Hash: ${txHash}`);
+          }
+
+          // Notify seller when a new escrow is created for them (status=Negotiation on INSERT)
+          if (eventType === "INSERT" && newRow.status === "Negotiation") {
+            try {
+              const providerAddr = job[2] as string;
+              console.log(`📣 New escrow Job #${newRow.job_id} created. Notifying seller (${providerAddr})...`);
+              // We can't map wallet address → Telegram chat ID without a registry,
+              // so we broadcast to any group chats that are subscribed.
+              // For direct notification, the seller should use /status command.
+              const notifyText =
+                `🔔 *New Escrow Assigned to You!* (Job #${newRow.job_id})\n` +
+                `A buyer has created an escrow that requires your budget confirmation.\n` +
+                `📋 Spec: _${job[4]}_\n\n` +
+                `👉 Open the portal to set your price and begin work:`;
+              const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || "http://localhost:3000";
+              // Attempt direct message using seller's chat ID stored in metadata (future extension)
+              // For now, log the notification for debugging
+              console.log(`[Seller Notification] Job #${newRow.job_id} → ${webAppUrl}/escrow/${newRow.job_id}`);
+            } catch (notifyErr) {
+              console.error("Failed to send seller notification:", notifyErr);
+            }
           }
         }
       }
@@ -385,10 +394,94 @@ bot.onText(/\/escrow/, (msg) => {
   bot.sendMessage(chatId, "Click the button below to open the ArcHandshake Escrow portal:", getButtonMarkup("🚀 Open Escrow Portal", "/escrow"));
 });
 
-// Launch Pool portal
-bot.onText(/\/pool/, (msg) => {
+// Link a custom Group Treasury pool to a group chat
+bot.onText(/\/setup_pool\s+(0x[a-fA-F0-9]{40})/, async (msg, match) => {
   const chatId = msg.chat.id;
-  bot.sendMessage(chatId, "Click the button below to check your Group Treasury Pool & Vote:", getButtonMarkup("🏦 Open Group Pool", "/treasury"));
+  const address = match?.[1];
+
+  if (!address) {
+    bot.sendMessage(chatId, "❌ Please specify a valid treasury contract address. Example: `/setup_pool 0x2998...`", { parse_mode: "Markdown" });
+    return;
+  }
+
+  try {
+    const { error } = await supabase
+      .from("group_pools")
+      .upsert({
+        chat_id: chatId,
+        treasury_address: address
+      });
+
+    if (error) throw error;
+
+    bot.sendMessage(chatId, `✅ *Success!* Linked this chat to Group Treasury:\n\`${address}\`\n\nType /pool to see active stats.`, { parse_mode: "Markdown" });
+  } catch (err: any) {
+    console.error("Failed to link group pool in Supabase:", err);
+    bot.sendMessage(chatId, `❌ Failed to link treasury: ${err.message || err}`);
+  }
+});
+
+// Launch Pool portal — shows live treasury stats
+bot.onText(/\/pool/, async (msg) => {
+  const chatId = msg.chat.id;
+  const chatType = msg.chat.type;
+  const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || "http://localhost:3000";
+
+  let linkedAddress = "";
+  
+  if (chatType === "group" || chatType === "supergroup") {
+    try {
+      const { data, error } = await supabase
+        .from("group_pools")
+        .select("treasury_address")
+        .eq("chat_id", chatId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (data) {
+        linkedAddress = data.treasury_address;
+      }
+    } catch (dbErr) {
+      console.error("Failed to query group_pools in Supabase:", dbErr);
+    }
+  }
+
+  const targetAddress = linkedAddress || process.env.TREASURY_ADDRESS || "0x29984fd25B15Cd271e4ebAD350a2Ca2269a65304";
+  const portalPath = linkedAddress ? `/treasury/${linkedAddress}` : "/treasury";
+
+  try {
+    const stats = await getTreasuryStats(targetAddress);
+    if (!stats) {
+      bot.sendMessage(
+        chatId, 
+        linkedAddress 
+          ? `⚠️ Could not fetch treasury stats for linked pool. Try the portal directly:`
+          : "⚠️ Could not fetch treasury stats. Try the portal directly:", 
+        getButtonMarkup("🏦 Open Group Pool", portalPath)
+      );
+      return;
+    }
+
+    const poolLabel = linkedAddress ? `Group Pool (\`${linkedAddress.slice(0,6)}…${linkedAddress.slice(-4)}\`)` : "Group Pool";
+    const reply =
+      `🏦 *ArcHandshake ${poolLabel}*\n\n` +
+      `💰 Pool Balance: *${stats.balance} USDC*\n` +
+      `👥 Members: *${stats.members}*\n` +
+      `🗳 Active Votes: *${stats.active}* proposal${stats.active !== 1 ? "s" : ""} open\n` +
+      `📊 Total Proposals: *${stats.totalProposals}*\n\n` +
+      `Open the portal to deposit, vote, or propose a spend:`;
+
+    bot.sendMessage(chatId, reply, {
+      parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [[
+          { text: "🏦 Open Group Pool", web_app: { url: `${webAppUrl}${portalPath}` } }
+        ]]
+      }
+    });
+  } catch (err) {
+    bot.sendMessage(chatId, "Click below to open the ArcHandshake Group Pool:", getButtonMarkup("🏦 Open Group Pool", portalPath));
+  }
 });
 
 // NLP Message Router
@@ -429,6 +522,22 @@ bot.on("message", async (msg) => {
       });
     } else if (analysis.intent === "CREATE_PROPOSAL") {
       const { amount, recipient, taskDescription } = analysis.params;
+      
+      // Look up if this group has a custom treasury address
+      let linkedAddress = "";
+      try {
+        const { data } = await supabase
+          .from("group_pools")
+          .select("treasury_address")
+          .eq("chat_id", chatId)
+          .maybeSingle();
+        if (data) {
+          linkedAddress = data.treasury_address;
+        }
+      } catch (e) {}
+
+      const portalPath = linkedAddress ? `/treasury/${linkedAddress}` : "/treasury";
+
       let reply = `🏦 *New Group Treasury Proposal*\n\n`;
       reply += `👤 *Proposer*: @${msg.from?.username || "member"}\n`;
       reply += `👤 *Recipient*: ${recipient || "Not specified"}\n`;
@@ -438,7 +547,7 @@ bot.on("message", async (msg) => {
 
       bot.sendMessage(chatId, reply, {
         parse_mode: "Markdown",
-        ...getButtonMarkup("✍️ Propose Spend", "/treasury/propose")
+        ...getButtonMarkup("✍️ Propose Spend", portalPath)
       });
     }
   } catch (error) {
@@ -489,48 +598,82 @@ bot.on("document", async (msg) => {
       console.error("Failed to insert Telegram submission into Supabase:", dbErr);
     }
 
-    // 3. AI Verification Process (Simulated call using Gemini Vision or simple checks)
-    // We inspect the job description and the file extension.
+    // 3. AI Verification — Gemini Vision with heuristic fallback
     const jobDescription = job[4]; // description field
-    const fileExtension = msg.document?.file_name?.split(".").pop() || "";
+    const fileName = msg.document?.file_name || "deliverable";
     
-    console.log(`Analyzing file against description: "${jobDescription}"`);
+    console.log(`🔍 Running AI verification for Job #${jobId}. Spec: "${jobDescription}"`);
+    bot.sendMessage(chatId, `🔍 *Analyzing deliverable with ${process.env.GEMINI_API_KEY ? "Gemini Vision AI" : "heuristic check"}...*`);
 
-    // Let's do a smart verification:
-    // If the description mentions "SVG" and the uploaded file is indeed an SVG, we approve.
-    // Otherwise, we query Gemini to verify the contents.
-    let isApproved = false;
-    let reason = "";
+    const verification = await verifyDeliverable(fileUrl, fileName, jobDescription);
+    const aiLabel = verification.usedAI ? "🤖 Gemini AI" : "📏 Heuristic";
 
-    if (jobDescription.toLowerCase().includes("svg") && fileExtension.toLowerCase() !== "svg") {
-      reason = `Required file type: SVG. Uploaded file: ${fileExtension}.`;
-    } else {
-      isApproved = true; // Mock approval for demo purposes
-      reason = "Deliverable matches all parameters in the agreed spec sheet.";
-    }
-
-    if (isApproved) {
+    if (verification.isApproved) {
       const reasonHash = keccak256(toHex("AI_APPROVED"));
-      bot.sendMessage(chatId, `✅ *AI Verification Passed!*\n${reason}\n\nInitiating release transaction on the Arc network...`);
+      bot.sendMessage(chatId, `✅ *${aiLabel} Verification Passed!*\n${verification.reason}\n\nInitiating release transaction on the Arc network...`);
       
-      // Call complete on smart contract
       const txHash = await releaseEscrow(jobId, reasonHash);
       bot.sendMessage(chatId, `🎉 *Escrow Released!* Payment of USDC has been sent to the seller.\nTx Explorer: https://testnet.arcscan.app/tx/${txHash}`);
-
-      // Update submission status in Supabase
-      await updateDbStatus(numericJobId, "Approved", `Verification passed! ${reason} Tx Hash: ${txHash}`);
+      await updateDbStatus(numericJobId, "Approved", `${aiLabel} Verification passed! ${verification.reason} Tx Hash: ${txHash}`);
     } else {
       const reasonHash = keccak256(toHex("AI_REJECTED"));
-      bot.sendMessage(chatId, `❌ *AI Verification Failed!*\nReason: ${reason}\n\nSubmission has been rejected. Seller can fix and re-submit, or file a dispute.`);
-      
-      // Update submission status in Supabase
-      await updateDbStatus(numericJobId, "Rejected", `Verification failed! ${reason}`);
-
+      bot.sendMessage(chatId, `❌ *${aiLabel} Verification Failed!*\nReason: ${verification.reason}\n\nSubmission has been rejected. Fix and re-submit, or file a dispute via the web portal.`);
+      await updateDbStatus(numericJobId, "Rejected", `${aiLabel} Verification failed! ${verification.reason}`);
       await rejectSubmission(jobId, reasonHash);
     }
 
   } catch (error: any) {
     bot.sendMessage(chatId, `❌ *Error processing AI Verification:* ${error.message}`);
+  }
+});
+
+// /status command — quick job status lookup
+bot.onText(/\/status(?:\s+(\d+))?/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const jobIdStr = match?.[1];
+
+  if (!jobIdStr) {
+    bot.sendMessage(chatId, "Usage: `/status <jobId>` — e.g., `/status 42`", { parse_mode: "Markdown" });
+    return;
+  }
+
+  const jobId = BigInt(jobIdStr);
+  try {
+    const job = await getJobDetails(jobId);
+    if (!job) {
+      bot.sendMessage(chatId, `❌ Job #${jobIdStr} not found on chain.`);
+      return;
+    }
+
+    const statuses = ["Open", "Funded", "Submitted", "Completed", "Rejected", "Expired", "Disputed"];
+    const statusEmojis = ["🟡", "🔵", "🟠", "✅", "❌", "⏰", "⚠️"];
+    const statusIndex = Number(job[7]);
+    const statusLabel = statuses[statusIndex] || "Unknown";
+    const statusEmoji = statusEmojis[statusIndex] || "❓";
+
+    const budgetRaw = job[5] as bigint;
+    const budget = (Number(budgetRaw) / 1e6).toFixed(2);
+    const expiredAt = new Date(Number(job[6]) * 1000);
+    const now = new Date();
+    const timeLeft = expiredAt.getTime() - now.getTime();
+    const expiryStr = timeLeft > 0
+      ? `${Math.floor(timeLeft / 3600000)}h ${Math.floor((timeLeft % 3600000) / 60000)}m remaining`
+      : `Expired on ${expiredAt.toLocaleDateString()}`;
+
+    const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL || "http://localhost:3000";
+    const reply =
+      `${statusEmoji} *Job #${jobIdStr} — ${statusLabel}*\n` +
+      `📋 _${job[4]}_\n\n` +
+      `💰 Budget: *${budget} USDC*\n` +
+      `⏱ Expiry: ${expiryStr}\n` +
+      `🔗 [Open Escrow Portal](${webAppUrl}/escrow/${jobIdStr})`;
+
+    bot.sendMessage(chatId, reply, {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+    });
+  } catch (err: any) {
+    bot.sendMessage(chatId, `❌ Failed to fetch job #${jobIdStr}: ${err.message || err}`);
   }
 });
 

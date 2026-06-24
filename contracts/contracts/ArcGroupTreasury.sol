@@ -58,10 +58,10 @@ contract ArcGroupTreasury {
         _;
     }
 
-    constructor(address _usdc) {
-        admin = msg.sender;
-        isMember[msg.sender] = true;
-        membersList.push(msg.sender);
+    constructor(address _usdc, address _admin) {
+        admin = _admin;
+        isMember[_admin] = true;
+        membersList.push(_admin);
         USDC = _usdc;
     }
 

@@ -1,19 +1,21 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as dotenv from "dotenv";
 import * as path from "path";
+import * as https from "https";
+import * as http from "http";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 // Initialize Google Gen AI if API key is present
-const apiKey = process.env.GEMINI_API_KEY || process.env.CIRCLE_API_KEY; // Fallback to circle api key or similar if needed, or ask user to set it
 let aiModel: any = null;
 
 if (process.env.GEMINI_API_KEY) {
   try {
     const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     aiModel = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
+    console.log("✅ Gemini AI initialized for NLP + Vision verification.");
   } catch (e) {
     console.warn("Failed to initialize Google Gen AI:", e);
   }
@@ -142,4 +144,141 @@ function extractDescription(text: string): string {
   if (toMatch) return toMatch[1].trim();
 
   return "ArcHandshake Deal";
+}
+
+/**
+ * Downloads a file from a URL and returns it as a base64-encoded string with its MIME type.
+ */
+async function fetchFileAsBase64(fileUrl: string): Promise<{ base64: string; mimeType: string } | null> {
+  return new Promise((resolve) => {
+    const protocol = fileUrl.startsWith("https") ? https : http;
+    protocol.get(fileUrl, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        // Follow redirect
+        fetchFileAsBase64(res.headers.location).then(resolve);
+        return;
+      }
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const buffer = Buffer.concat(chunks);
+        const base64 = buffer.toString("base64");
+        const contentType = res.headers["content-type"] || "application/octet-stream";
+        const mimeType = contentType.split(";")[0].trim();
+        resolve({ base64, mimeType });
+      });
+      res.on("error", () => resolve(null));
+    }).on("error", () => resolve(null));
+  });
+}
+
+export interface VerificationResult {
+  isApproved: boolean;
+  reason: string;
+  usedAI: boolean;
+}
+
+/**
+ * Verifies a submitted deliverable against the job description.
+ * Uses Gemini Vision if available; falls back to extension-based heuristics.
+ */
+export async function verifyDeliverable(
+  fileUrl: string,
+  fileName: string,
+  jobDescription: string
+): Promise<VerificationResult> {
+  const fileExtension = fileName.split(".").pop()?.toLowerCase() || "";
+
+  // ─── Gemini Vision path ───────────────────────────────────────────────────
+  if (aiModel) {
+    try {
+      console.log(`🔍 Downloading deliverable for AI vision check: ${fileUrl}`);
+      const fileData = await fetchFileAsBase64(fileUrl);
+
+      if (fileData) {
+        const prompt = `
+You are an autonomous escrow verification agent for a freelance marketplace.
+Your task is to decide whether the uploaded deliverable satisfies the job requirements.
+
+Job Description / Spec:
+"${jobDescription}"
+
+Uploaded File Name: "${fileName}"
+File Extension: ".${fileExtension}"
+
+Instructions:
+1. Look at the uploaded file carefully.
+2. Check if it matches the requirements in the job description (e.g., file type, content, quality).
+3. Respond ONLY with a JSON object in this exact format — no extra text:
+{
+  "approved": true | false,
+  "reason": "A clear, one-sentence explanation of your verdict."
+}
+`;
+
+        const result = await aiModel.generateContent({
+          contents: [{
+            role: "user",
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: fileData.mimeType,
+                  data: fileData.base64,
+                },
+              },
+            ],
+          }],
+          generationConfig: { responseMimeType: "application/json" },
+        });
+
+        const responseText = result.response.text().trim();
+        const parsed = JSON.parse(responseText);
+        console.log(`🤖 Gemini verdict: ${parsed.approved ? "✅ APPROVED" : "❌ REJECTED"} — ${parsed.reason}`);
+
+        return {
+          isApproved: !!parsed.approved,
+          reason: parsed.reason || (parsed.approved ? "Deliverable verified by Gemini AI." : "Deliverable rejected by Gemini AI."),
+          usedAI: true,
+        };
+      }
+    } catch (error: any) {
+      console.error("Gemini Vision verification failed, falling back to heuristic:", error.message || error);
+    }
+  }
+
+  // ─── Heuristic fallback ───────────────────────────────────────────────────
+  console.warn("⚠️ Gemini Vision unavailable — using heuristic file extension check.");
+
+  const descLower = jobDescription.toLowerCase();
+
+  // Check for explicit file type requirements in the description
+  const fileTypePatterns: Record<string, string[]> = {
+    svg: ["svg"],
+    png: ["png"],
+    pdf: ["pdf"],
+    jpg: ["jpg", "jpeg"],
+    mp4: ["mp4", "video"],
+    zip: ["zip", "archive"],
+    mp3: ["mp3", "audio"],
+  };
+
+  for (const [ext, keywords] of Object.entries(fileTypePatterns)) {
+    if (keywords.some((kw) => descLower.includes(kw))) {
+      if (fileExtension !== ext) {
+        return {
+          isApproved: false,
+          reason: `Job requires a .${ext} file but received a .${fileExtension} file.`,
+          usedAI: false,
+        };
+      }
+      break;
+    }
+  }
+
+  return {
+    isApproved: true,
+    reason: "Deliverable file type matches job requirements. (Heuristic check — set GEMINI_API_KEY for full AI verification.)",
+    usedAI: false,
+  };
 }

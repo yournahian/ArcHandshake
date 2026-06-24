@@ -1,426 +1,194 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useAccount, useReadContract, useWriteContract } from "wagmi";
-import { formatUnits, parseUnits } from "viem";
-import { treasuryAbi, DEPLOYED_TREASURY_ADDRESS } from "@/lib/contracts";
-import { ARC_MIN_GAS_PRICE } from "@/lib/wagmi";
-import { Landmark, ArrowUpRight, Vote, Check, X, ShieldAlert, Coins } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useAccount, useWriteContract, usePublicClient } from "wagmi";
+import { decodeEventLog } from "viem";
+import { DEPLOYED_FACTORY_ADDRESS, factoryAbi } from "@/lib/contracts";
+import { Landmark, PlusCircle, ArrowRight, RefreshCw, AlertCircle, Settings } from "lucide-react";
+import { waitForReceipt } from "@/lib/utils";
 import confetti from "canvas-confetti";
 
-export default function TreasuryDashboard() {
-  const { address, isConnected } = useAccount();
+const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS || "0x3600000000000000000000000000000000000000") as `0x${string}`;
+
+export default function TreasuryLauncher() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const router = useRouter();
+  const { isConnected } = useAccount();
   const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
 
-  // Local Form States
-  const [depositAmount, setDepositAmount] = useState("");
-  const [directSpendAmount, setDirectSpendAmount] = useState("");
-  const [directSpendRecipient, setDirectSpendRecipient] = useState("");
-  
-  const [proposalAmount, setProposalAmount] = useState("");
-  const [proposalRecipient, setProposalRecipient] = useState("");
-  const [proposalDescription, setProposalDescription] = useState("");
+  const [existingAddress, setExistingAddress] = useState("");
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [txPendingMessage, setTxPendingMessage] = useState<string | null>(null);
 
-  const [isTxPending, setIsTxPending] = useState(false);
-
-  // Read Pool Balance
-  const { data: balanceRaw, refetch: refetchBalance } = useReadContract({
-    address: DEPLOYED_TREASURY_ADDRESS,
-    abi: treasuryAbi,
-    functionName: "getBalance",
-  });
-
-  // Read Members Count
-  const { data: membersCountRaw } = useReadContract({
-    address: DEPLOYED_TREASURY_ADDRESS,
-    abi: treasuryAbi,
-    functionName: "getMembersCount",
-  });
-
-  const balance = balanceRaw ? formatUnits(balanceRaw as bigint, 6) : "0";
-  const membersCount = membersCountRaw ? (membersCountRaw as bigint).toString() : "1";
-
-  // Mock proposal lists for visual tracking (in production, read from contract dynamically)
-  const [proposals, setProposals] = useState([
-    {
-      id: 1,
-      proposer: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-      recipient: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-      amount: "50",
-      description: "Approve payment for logo designer @designer",
-      votesFor: 2,
-      votesAgainst: 0,
-      executed: false,
-      deadline: "24h remaining"
+  const handleDeploy = async () => {
+    if (!isConnected) {
+      alert("Please connect your wallet first!");
+      return;
     }
-  ]);
+    if (DEPLOYED_FACTORY_ADDRESS === "0x0000000000000000000000000000000000000000") {
+      alert("Factory address is not configured yet! Please set NEXT_PUBLIC_FACTORY_ADDRESS in the .env file.");
+      return;
+    }
 
-  const handleDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsTxPending(true);
+    setIsDeploying(true);
+    setTxPendingMessage("Requesting deployment transaction…");
     try {
-      const amountRaw = parseUnits(depositAmount, 6);
+      const hash = await writeContractAsync({
+        address: DEPLOYED_FACTORY_ADDRESS,
+        abi: factoryAbi,
+        functionName: "deployTreasury",
+        args: [USDC_ADDRESS],
+      });
+
+      setTxPendingMessage("Broadcasting & waiting for deployment confirmation…");
+      const receipt = await waitForReceipt(publicClient!, hash);
+
+      if (receipt.status !== "success") {
+        throw new Error("Factory deployment transaction reverted!");
+      }
+
+      // Decode transaction logs to find the TreasuryDeployed event
+      let deployedAddress = "";
+      for (const log of receipt.logs) {
+        try {
+          const decoded = decodeEventLog({
+            abi: factoryAbi,
+            eventName: "TreasuryDeployed",
+            data: log.data,
+            topics: log.topics,
+          });
+          deployedAddress = decoded.args.treasuryAddress;
+          break;
+        } catch (e) {
+          // ignore logs from other events or contracts
+        }
+      }
+
+      if (!deployedAddress) {
+        throw new Error("Could not extract deployed treasury address from receipt logs.");
+      }
+
+      confetti({ particleCount: 150, spread: 80 });
+      setTxPendingMessage("Success! Redirecting to your new treasury dashboard…");
       
-      // Standard ERC20 Approve then deposit
-      // (Simplified: we directly trigger write contract to simulate success)
-      await writeContractAsync({
-        address: DEPLOYED_TREASURY_ADDRESS,
-        abi: [
-          {
-            type: "function",
-            name: "deposit",
-            stateMutability: "nonpayable",
-            inputs: [{ name: "amount", type: "uint256" }],
-            outputs: []
-          }
-        ] as const,
-        functionName: "deposit",
-        args: [amountRaw],
-        gasPrice: ARC_MIN_GAS_PRICE,
-      });
+      // Short delay to let them see success
+      setTimeout(() => {
+        router.push(`/treasury/${deployedAddress}`);
+      }, 1500);
 
-      confetti({ particleCount: 50, spread: 40 });
-      setDepositAmount("");
-      refetchBalance();
-    } catch (err) {
-      alert("Deposit failed!");
-    } finally {
-      setIsTxPending(false);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Deployment failed: ${err.shortMessage || err.message || "Unknown error"}`);
+      setIsDeploying(false);
+      setTxPendingMessage(null);
     }
   };
 
-  const handleDirectSpend = async (e: React.FormEvent) => {
+  const handleOpenExisting = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsTxPending(true);
-    try {
-      const amountRaw = parseUnits(directSpendAmount, 6);
-      await writeContractAsync({
-        address: DEPLOYED_TREASURY_ADDRESS,
-        abi: [
-          {
-            type: "function",
-            name: "directSpend",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "recipient", type: "address" },
-              { name: "amount", type: "uint256" }
-            ],
-            outputs: []
-          }
-        ] as const,
-        functionName: "directSpend",
-        args: [directSpendRecipient as `0x${string}`, amountRaw],
-        gasPrice: ARC_MIN_GAS_PRICE,
-      });
-
-      alert("Direct spend executed successfully under daily limit!");
-      setDirectSpendAmount("");
-      setDirectSpendRecipient("");
-      refetchBalance();
-    } catch (err) {
-      alert("Direct spend rejected! Ensure your allowance limits aren't exceeded.");
-    } finally {
-      setIsTxPending(false);
+    const cleanAddress = existingAddress.trim();
+    if (!cleanAddress.startsWith("0x") || cleanAddress.length !== 42) {
+      alert("Please enter a valid EVM contract address starting with 0x!");
+      return;
     }
+    router.push(`/treasury/${cleanAddress}`);
   };
 
-  const handleCreateProposal = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsTxPending(true);
-    try {
-      const amountRaw = parseUnits(proposalAmount, 6);
-      await writeContractAsync({
-        address: DEPLOYED_TREASURY_ADDRESS,
-        abi: [
-          {
-            type: "function",
-            name: "proposeSpend",
-            stateMutability: "nonpayable",
-            inputs: [
-              { name: "recipient", type: "address" },
-              { name: "amount", type: "uint256" },
-              { name: "description", type: "string" }
-            ],
-            outputs: [{ type: "uint256" }]
-          }
-        ] as const,
-        functionName: "proposeSpend",
-        args: [proposalRecipient as `0x${string}`, amountRaw, proposalDescription],
-        gasPrice: ARC_MIN_GAS_PRICE,
-      });
-
-      // Add to local state list
-      setProposals([
-        ...proposals,
-        {
-          id: proposals.length + 1,
-          proposer: address || "0x...",
-          recipient: proposalRecipient,
-          amount: proposalAmount,
-          description: proposalDescription,
-          votesFor: 1,
-          votesAgainst: 0,
-          executed: false,
-          deadline: "3 days remaining"
-        }
-      ]);
-
-      setProposalAmount("");
-      setProposalRecipient("");
-      setProposalDescription("");
-    } catch (err) {
-      alert("Proposal creation failed!");
-    } finally {
-      setIsTxPending(false);
-    }
-  };
-
-  const handleVote = (proposalId: number, support: boolean) => {
-    setProposals(
-      proposals.map((p) => {
-        if (p.id === proposalId) {
-          return {
-            ...p,
-            votesFor: support ? p.votesFor + 1 : p.votesFor,
-            votesAgainst: !support ? p.votesAgainst + 1 : p.votesAgainst
-          };
-        }
-        return p;
-      })
+  if (!mounted) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
+        <RefreshCw size={24} className="animate-spin" style={{ color: "var(--primary)" }} />
+      </div>
     );
-    alert(`Vote cast successfully: ${support ? "YES" : "NO"}`);
-  };
-
-  const handleExecute = (proposalId: number) => {
-    setProposals(
-      proposals.map((p) => {
-        if (p.id === proposalId) {
-          return { ...p, executed: true };
-        }
-        return p;
-      })
-    );
-    confetti({ particleCount: 80, spread: 60 });
-    alert("Expenditure proposal executed!");
-  };
+  }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "40px", padding: "20px 0" }}>
-      
-      {/* Header Cards (Treasury Stats) */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "20px" }}>
-        
-        {/* Pool Balance Card */}
-        <div className="glass-card" style={{ padding: "28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Total Pool Balance</span>
-            <div style={{ fontSize: "2.2rem", fontWeight: 800, marginTop: "6px", fontFamily: "Space Grotesk" }}>
-              {balance} <span style={{ fontSize: "1.2rem", color: "var(--primary)" }}>USDC</span>
-            </div>
-          </div>
-          <div style={{
-            background: "rgba(255, 255, 255, 0.08)",
-            color: "var(--primary)",
-            width: "54px",
-            height: "54px",
-            borderRadius: "14px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
-          }}>
-            <Landmark size={24} />
-          </div>
-        </div>
+    <div style={{ maxWidth: "800px", margin: "40px auto", display: "flex", flexDirection: "column", gap: "36px" }}>
 
-        {/* Members count */}
-        <div className="glass-card" style={{ padding: "28px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Active Members</span>
-            <div style={{ fontSize: "2.2rem", fontWeight: 800, marginTop: "6px", fontFamily: "Space Grotesk" }}>
-              {membersCount} <span style={{ fontSize: "1.2rem", color: "var(--primary)" }}>Users</span>
-            </div>
-          </div>
-          <div style={{
-            background: "rgba(255, 255, 255, 0.08)",
-            color: "var(--primary)",
-            width: "54px",
-            height: "54px",
-            borderRadius: "14px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
-          }}>
-            <Coins size={24} />
-          </div>
+      {/* Global Transaction Overlay */}
+      {txPendingMessage && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)",
+          zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px",
+        }}>
+          <RefreshCw size={32} className="animate-spin" style={{ color: "var(--primary)" }} />
+          <span style={{ fontWeight: 600, fontSize: "1.15rem" }}>{txPendingMessage}</span>
+          <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>Do not close this page. Confirm the transaction in your wallet…</span>
         </div>
+      )}
+
+      {/* Hero Header */}
+      <div className="glass-card" style={{ padding: "40px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
+        <div style={{ background: "rgba(255,255,255,0.06)", width: "70px", height: "70px", borderRadius: "18px", display: "flex", alignItems: "center", justifyValue: "center", justifyContent: "center" }}>
+          <Landmark size={36} style={{ color: "var(--primary)" }} />
+        </div>
+        <h1 style={{ fontSize: "2.2rem", fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #FFF 0%, #AAA 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+          Group Treasury Portal
+        </h1>
+        <p style={{ margin: 0, fontSize: "1rem", color: "var(--text-secondary)", maxWidth: "500px", lineHeight: 1.5 }}>
+          Create shared multi-sig pools on the Arc Network. Set custom spending limits, draft expenditure proposals, and vote collectively.
+        </p>
       </div>
 
-      {/* Main Controls Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "32px", alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "24px" }}>
         
-        {/* Left Column: Deposits and Limits */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
-          
-          {/* Deposit box */}
-          <div className="glass-card" style={{ padding: "32px" }}>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "20px" }}>Deposit to Pool</h2>
-            <form onSubmit={handleDeposit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div>
-                <label htmlFor="deposit">Amount</label>
-                <input
-                  id="deposit"
-                  type="number"
-                  placeholder="USDC"
-                  required
-                  value={depositAmount}
-                  onChange={(e) => setDepositAmount(e.target.value)}
-                />
-              </div>
-              <button type="submit" className="btn-primary" disabled={isTxPending || !depositAmount} style={{ justifyContent: "center" }}>
-                Deposit USDC
-              </button>
-            </form>
+        {/* Deploy New Treasury Card */}
+        <div className="glass-card" style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <PlusCircle size={20} style={{ color: "var(--primary)" }} />
+            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>Deploy New Pool</h2>
           </div>
-
-          {/* Daily Limit spend box */}
-          <div className="glass-card" style={{ padding: "32px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-              <h2 style={{ fontSize: "1.25rem", fontWeight: 700 }}>Direct Spend (Daily Limit)</h2>
-              <span className="badge badge-info">10 USDC limit</span>
-            </div>
-            <form onSubmit={handleDirectSpend} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div>
-                <label htmlFor="recipient">Recipient Address</label>
-                <input
-                  id="recipient"
-                  type="text"
-                  placeholder="0x..."
-                  required
-                  value={directSpendRecipient}
-                  onChange={(e) => setDirectSpendRecipient(e.target.value)}
-                />
-              </div>
-              <div>
-                <label htmlFor="limitAmount">Amount</label>
-                <input
-                  id="limitAmount"
-                  type="number"
-                  placeholder="USDC"
-                  required
-                  value={directSpendAmount}
-                  onChange={(e) => setDirectSpendAmount(e.target.value)}
-                />
-              </div>
-              <button type="submit" className="btn-secondary" disabled={isTxPending || !directSpendAmount || !directSpendRecipient} style={{ display: "flex", justifyContent: "center", gap: "8px" }}>
-                Send Instantly <ArrowUpRight size={18} />
-              </button>
-            </form>
-          </div>
-
+          <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.6, flex: 1 }}>
+            Deploy a fresh custom `ArcGroupTreasury` instance. Your wallet will automatically be set as the **Admin and First Member**, giving you rights to add others.
+          </p>
+          <button 
+            onClick={handleDeploy} 
+            disabled={isDeploying} 
+            className="btn-primary" 
+            style={{ width: "100%", justifyContent: "center", height: "45px", fontSize: "0.95rem" }}
+          >
+            {isDeploying ? "Deploying…" : "Deploy New Treasury"}
+          </button>
         </div>
 
-        {/* Right Column: Proposals and Voting */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
-          
-          {/* Active Proposals list */}
-          <div className="glass-card" style={{ padding: "32px" }}>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "20px" }}>Active Expenditure Proposals</h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              
-              {proposals.map((proposal) => {
-                const totalVotes = proposal.votesFor + proposal.votesAgainst;
-                const isExecutable = proposal.votesFor >= 2 && !proposal.executed; // Mock condition
-                
-                return (
-                  <div key={proposal.id} style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "12px", padding: "20px", display: "flex", flexDirection: "column", gap: "14px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <div>
-                        <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontFamily: "Space Grotesk" }}>PROPOSAL #{proposal.id}</span>
-                        <h4 style={{ fontSize: "1.05rem", fontWeight: 600, marginTop: "2px" }}>{proposal.description}</h4>
-                      </div>
-                      <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--primary)", fontFamily: "Space Grotesk" }}>{proposal.amount} USDC</div>
-                    </div>
-                    
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                      <span>Recipient: {proposal.recipient.slice(0, 6)}...{proposal.recipient.slice(-4)}</span>
-                      <span>{proposal.deadline}</span>
-                    </div>
-
-                    <div style={{ borderBottom: "1px solid var(--border-color)", margin: "4px 0" }}></div>
-
-                    {proposal.executed ? (
-                      <span className="badge badge-success" style={{ width: "100%", justifyContent: "center" }}>Executed</span>
-                    ) : (
-                      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                        <div style={{ display: "flex", gap: "8px", flex: 1 }}>
-                          <button onClick={() => handleVote(proposal.id, true)} className="btn-secondary" style={{ display: "flex", gap: "4px", padding: "8px 16px", flex: 1, justifyContent: "center", border: "1px solid rgba(16, 185, 129, 0.2)", color: "var(--success)" }}>
-                            <Check size={14} /> YES ({proposal.votesFor})
-                          </button>
-                          <button onClick={() => handleVote(proposal.id, false)} className="btn-secondary" style={{ display: "flex", gap: "4px", padding: "8px 16px", flex: 1, justifyContent: "center", border: "1px solid rgba(239, 68, 68, 0.2)", color: "var(--danger)" }}>
-                            <X size={14} /> NO ({proposal.votesAgainst})
-                          </button>
-                        </div>
-                        {isExecutable && (
-                          <button onClick={() => handleExecute(proposal.id)} className="btn-primary" style={{ padding: "8px 16px" }}>
-                            Execute Payout
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-            </div>
+        {/* Access Existing Treasury Card */}
+        <div className="glass-card" style={{ padding: "32px", display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <Settings size={20} style={{ color: "var(--primary)" }} />
+            <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>Open Existing Pool</h2>
           </div>
-
-          {/* New Proposal form */}
-          <div className="glass-card" style={{ padding: "32px" }}>
-            <h2 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "20px" }}>Propose Pool Expenditure</h2>
-            <form onSubmit={handleCreateProposal} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                <div>
-                  <label htmlFor="propRecipient">Recipient Address</label>
-                  <input
-                    id="propRecipient"
-                    type="text"
-                    placeholder="0x..."
-                    required
-                    value={proposalRecipient}
-                    onChange={(e) => setProposalRecipient(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="propAmount">Amount (USDC)</label>
-                  <input
-                    id="propAmount"
-                    type="number"
-                    placeholder="USDC"
-                    required
-                    value={proposalAmount}
-                    onChange={(e) => setProposalAmount(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div>
-                <label htmlFor="propDesc">Reason / Description</label>
-                <input
-                  id="propDesc"
-                  type="text"
-                  placeholder="e.g. server hosting costs"
-                  required
-                  value={proposalDescription}
-                  onChange={(e) => setProposalDescription(e.target.value)}
-                />
-              </div>
-              <button type="submit" className="btn-primary" disabled={isTxPending || !proposalAmount || !proposalRecipient || !proposalDescription} style={{ justifyContent: "center" }}>
-                Submit Proposal
-              </button>
-            </form>
-          </div>
-
+          <p style={{ margin: 0, fontSize: "0.88rem", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            Already have a group pool address? Paste the deployed treasury contract address below to open its dashboard.
+          </p>
+          <form onSubmit={handleOpenExisting} style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "auto" }}>
+            <input 
+              type="text" 
+              placeholder="0x contract address" 
+              required 
+              value={existingAddress} 
+              onChange={e => setExistingAddress(e.target.value)} 
+              style={{ height: "45px", padding: "0 16px", borderRadius: "8px", border: "1px solid var(--border-color)", background: "rgba(255,255,255,0.02)", fontSize: "0.88rem" }}
+            />
+            <button 
+              type="submit" 
+              className="btn-secondary" 
+              style={{ width: "100%", justifyContent: "center", height: "45px", gap: "6px", fontSize: "0.95rem" }}
+            >
+              Open Dashboard <ArrowRight size={16} />
+            </button>
+          </form>
         </div>
 
+      </div>
+
+      {/* Info footer */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "center", fontSize: "0.8rem", color: "var(--text-muted)", padding: "10px" }}>
+        <AlertCircle size={14} />
+        <span>Make sure your wallet is connected to Arc Testnet (Chain ID 5042002).</span>
       </div>
 
     </div>

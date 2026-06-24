@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAccount, useConnect, useDisconnect } from "wagmi";
 
 export function HeaderWallet() {
@@ -8,6 +8,25 @@ export function HeaderWallet() {
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
   const [showConnectors, setShowConnectors] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div style={{ position: "relative" }}>
+        <button
+          className="btn-primary"
+          style={{ padding: "10px 20px", fontSize: "0.9rem" }}
+          disabled
+        >
+          Connect Wallet
+        </button>
+      </div>
+    );
+  }
 
   if (isConnected && address) {
     const formatted = `${address.slice(0, 6)}...${address.slice(-4)}`;

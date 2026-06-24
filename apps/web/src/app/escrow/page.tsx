@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import { useAccount, useReadContract } from "wagmi";
 import { formatUnits } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
-import { Plus, Search, ExternalLink, Clock, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Plus, Search, ExternalLink, Clock, ShieldCheck, ShieldAlert, Activity } from "lucide-react";
 
-import { getStoredJobIds, trackJobId, setJobType, getJobType } from "@/lib/escrow-tracking";
+import { getStoredJobIds, trackJobId } from "@/lib/escrow-tracking";
 
 // Single job row — fetches live data from chain
 function JobRow({ jobId }: { jobId: number }) {
@@ -79,6 +79,46 @@ function JobRow({ jobId }: { jobId: number }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+// Reads nextJobId from contract and renders last N on-chain jobs
+function RecentJobs() {
+  const { data: nextJobIdRaw } = useReadContract({
+    address: DEPLOYED_ESCROW_ADDRESS,
+    abi: [
+      {
+        type: "function",
+        name: "nextJobId",
+        stateMutability: "view",
+        inputs: [],
+        outputs: [{ type: "uint256" }],
+      },
+    ] as const,
+    functionName: "nextJobId",
+  });
+
+  const totalJobs = nextJobIdRaw ? Number(nextJobIdRaw) - 1 : 0;
+  const recentCount = Math.min(totalJobs, 10);
+  const recentIds = Array.from({ length: recentCount }, (_, i) => totalJobs - i).filter(id => id > 0);
+
+  if (recentIds.length === 0) return null;
+
+  return (
+    <div className="glass-card" style={{ padding: "32px 40px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "20px" }}>
+        <Activity size={18} style={{ color: "var(--primary)" }} />
+        <h2 style={{ fontSize: "1.1rem", fontWeight: 600 }}>Recent On-Chain Activity</h2>
+        <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+          {totalJobs} total job{totalJobs !== 1 ? "s" : ""} on-chain
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+        {recentIds.map((id) => (
+          <JobRow key={id} jobId={id} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -164,6 +204,9 @@ export default function EscrowList() {
           </div>
         )}
       </div>
+
+      {/* Recent on-chain jobs from contract */}
+      <RecentJobs />
 
     </div>
   );

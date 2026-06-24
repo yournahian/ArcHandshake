@@ -5,11 +5,11 @@ import { useParams, useRouter } from "next/navigation";
 import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
 import { formatUnits, parseUnits, keccak256, toHex } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
-import { ARC_MIN_GAS_PRICE } from "@/lib/wagmi";
-import { ShieldAlert, ShieldCheck, Download, Upload, AlertCircle, RefreshCw, DollarSign, Wallet } from "lucide-react";
+import { ShieldAlert, ShieldCheck, Download, Upload, AlertCircle, RefreshCw, DollarSign, Wallet, Clock } from "lucide-react";
 import confetti from "canvas-confetti";
 import { trackJobId } from "@/lib/escrow-tracking";
 import { supabase } from "@/lib/supabase";
+import { waitForReceipt } from "@/lib/utils";
 
 const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x546c8C7A9d3Db29eb0c194Da0c72631F8a717b00";
 
@@ -85,6 +85,10 @@ export default function EscrowDetail() {
   const [submission, setSubmission] = useState<{ fileUrl: string; fileName: string; status: string; result: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
+  const [isRefunding, setIsRefunding] = useState(false);
+
+  // Live countdown timer
+  const [timeLeft, setTimeLeft] = useState<string | null>(null);
 
   // Load proposed budget from Supabase or localStorage
   useEffect(() => {
@@ -146,10 +150,6 @@ export default function EscrowDetail() {
         } else {
           // If Supabase is active but no record was found, reset submission state
           setSubmission(null);
-          try {
-            localStorage.removeItem(`arc_negotiation_${jobId}`);
-            setLocalCounterOffer(null);
-          } catch (err) {}
           return;
         }
       } catch (err) {
@@ -170,10 +170,6 @@ export default function EscrowDetail() {
         return;
       } else if (res.status === 404) {
         setSubmission(null);
-        try {
-          localStorage.removeItem(`arc_negotiation_${jobId}`);
-          setLocalCounterOffer(null);
-        } catch (err) {}
       }
     } catch (e) {
       // API offline, fall back to localStorage
@@ -291,16 +287,7 @@ export default function EscrowDetail() {
     }
   }, [jobRaw, id, router]);
 
-  if (isPending || !jobRaw) {
-    return (
-      <div style={{ textAlign: "center", padding: "100px 0", color: "var(--text-secondary)" }}>
-        <RefreshCw className="animate-spin" size={32} style={{ margin: "0 auto 16px" }} />
-        Loading escrow details from Arc Network...
-      </div>
-    );
-  }
-
-  // Map tuple results from contract
+  // Map tuple results from contract safely
   const [
     _,
     client,
@@ -313,7 +300,55 @@ export default function EscrowDetail() {
     hook,
     deliverableHash,
     qrConfirmationHash
-  ] = jobRaw;
+  ] = jobRaw || [
+    undefined,
+    "",
+    "",
+    "",
+    "",
+    BigInt(0),
+    BigInt(0),
+    0,
+    "",
+    "0x",
+    "0x"
+  ];
+
+  // ─── Live countdown (runs after jobRaw is available) ─────────────────────
+  useEffect(() => {
+    if (!expiredAtRaw) return;
+    const expiry = Number(expiredAtRaw) * 1000;
+    const tick = () => {
+      const diff = expiry - Date.now();
+      if (diff <= 0) {
+        setTimeLeft(null);
+        return;
+      }
+      const days = Math.floor(diff / 86400000);
+      const hrs  = Math.floor((diff % 86400000) / 3600000);
+      const mins = Math.floor((diff % 3600000)  / 60000);
+      const secs = Math.floor((diff % 60000)    / 1000);
+      setTimeLeft(
+        days > 0
+          ? `${days}d ${hrs}h ${mins}m`
+          : hrs > 0
+          ? `${hrs}h ${mins}m ${secs}s`
+          : `${mins}m ${secs}s`
+      );
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [expiredAtRaw]);
+
+  if (isPending || !jobRaw) {
+    return (
+      <div style={{ textAlign: "center", padding: "100px 0", color: "var(--text-secondary)" }}>
+        <RefreshCw className="animate-spin" size={32} style={{ margin: "0 auto 16px" }} />
+        Loading escrow details from Arc Network...
+      </div>
+    );
+  }
 
   const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -361,9 +396,8 @@ export default function EscrowDetail() {
         abi: escrowAbi,
         functionName: "setBudget",
         args: [jobId, amount, "0x"],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
-      await publicClient!.waitForTransactionReceipt({ hash: txHash });
+      await waitForReceipt(publicClient!, txHash);
       setBudgetInput("");
 
       // Clear negotiation state
@@ -461,22 +495,18 @@ export default function EscrowDetail() {
         outputs: [{ type: "bool" }]
       }] as const;
 
-      // 1. Approve USDC
       const approveTxHash = await writeContractAsync({
         address: USDC_ADDRESS, abi: approveAbi, functionName: "approve",
         args: [DEPLOYED_ESCROW_ADDRESS, budgetRaw],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
-      const approveReceipt = await publicClient!.waitForTransactionReceipt({ hash: approveTxHash });
+      const approveReceipt = await waitForReceipt(publicClient!, approveTxHash);
       if (approveReceipt.status !== "success") throw new Error("USDC approval reverted!");
 
-      // 2. Fund
       const fundTxHash = await writeContractAsync({
         address: DEPLOYED_ESCROW_ADDRESS, abi: escrowAbi, functionName: "fund",
         args: [jobId, "0x"],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
-      const fundReceipt = await publicClient!.waitForTransactionReceipt({ hash: fundTxHash });
+      const fundReceipt = await waitForReceipt(publicClient!, fundTxHash);
       if (fundReceipt.status !== "success") throw new Error("Funding transaction reverted!");
 
       refetch();
@@ -498,9 +528,8 @@ export default function EscrowDetail() {
         abi: escrowAbi,
         functionName: "submit",
         args: [jobId, deliverableHash, "0x"],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
-      await publicClient!.waitForTransactionReceipt({ hash: txHash });
+      await waitForReceipt(publicClient!, txHash);
 
       let finalFileUrl = fileUrl;
       const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -624,9 +653,8 @@ export default function EscrowDetail() {
           abi: escrowAbi,
           functionName: "complete",
           args: [jobId, reasonHash, "0x"],
-          gasPrice: ARC_MIN_GAS_PRICE,
         });
-        await publicClient!.waitForTransactionReceipt({ hash: txHash });
+        await waitForReceipt(publicClient!, txHash);
 
         // Update Supabase if available
         if (hasSupabase) {
@@ -731,12 +759,30 @@ export default function EscrowDetail() {
         abi: escrowAbi,
         functionName: "dispute",
         args: [jobId],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
       console.log("Dispute registered:", txHash);
       refetch();
     } catch (err) {
       alert("Dispute registration failed!");
+    }
+  };
+
+  const handleRefundExpired = async () => {
+    setIsRefunding(true);
+    try {
+      const txHash = await writeContractAsync({
+        address: DEPLOYED_ESCROW_ADDRESS,
+        abi: escrowAbi,
+        functionName: "refundExpired",
+        args: [jobId],
+      });
+      await waitForReceipt(publicClient!, txHash);
+      alert(`Refund successful! Your USDC has been returned.\nTx: ${txHash}`);
+      refetch();
+    } catch (err: any) {
+      alert(`Refund failed: ${err.message || err}`);
+    } finally {
+      setIsRefunding(false);
     }
   };
 
@@ -747,7 +793,6 @@ export default function EscrowDetail() {
         abi: escrowAbi,
         functionName: "resolveDispute",
         args: [jobId, resolution],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
       refetch();
     } catch (err) {
@@ -792,6 +837,17 @@ export default function EscrowDetail() {
           <div>
             <span style={{ fontSize: "0.85rem", color: "var(--text-muted)", fontFamily: "Space Grotesk" }}>JOB ESCROW ID: #{id}</span>
             <h1 style={{ fontSize: "1.8rem", fontWeight: 700, marginTop: "4px" }}>{description}</h1>
+            {/* Expiry countdown */}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "6px" }}>
+              <Clock size={13} style={{ color: status === 5 ? "var(--danger)" : "var(--text-muted)" }} />
+              {status === 5 ? (
+                <span style={{ fontSize: "0.8rem", color: "var(--danger)", fontWeight: 500 }}>Contract Expired</span>
+              ) : timeLeft ? (
+                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Expires in {timeLeft}</span>
+              ) : (
+                <span style={{ fontSize: "0.8rem", color: "var(--danger)", fontWeight: 500 }}>Expired</span>
+              )}
+            </div>
           </div>
           <div className={`badge ${
             status === 3 ? "badge-success" : 
@@ -887,11 +943,11 @@ export default function EscrowDetail() {
                 <img 
                   src={fileUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=600"} 
                   alt="Deliverable" 
-                  style={{ width: "100%", height: "100%", objectFit: "contain", filter: status === 3 ? "none" : "blur(2px)" }}
+                  style={{ width: "100%", height: "100%", objectFit: "contain", filter: (status === 3 || submission?.status === "Approved") ? "none" : "blur(2px)" }}
                 />
 
                 {/* Watermark Overlay (removed when completed) */}
-                {status !== 3 && (
+                {status !== 3 && submission?.status !== "Approved" && (
                   <div style={{
                     position: "absolute",
                     inset: 0,
@@ -944,7 +1000,7 @@ export default function EscrowDetail() {
                 </p>
               </div>
             )}
-            {status === 3 && (
+            {(status === 3 || submission?.status === "Approved") && isClient && (
               <a href={fileUrl || "#"} download={fileName || "deliverable.svg"} className="btn-primary" style={{ width: "100%", justifyContent: "center", marginTop: "16px" }}>
                 <Download size={18} /> Download Original Deliverable
               </a>
@@ -1161,13 +1217,52 @@ export default function EscrowDetail() {
 
 
           
-          {(status === 1 || status === 2) && isClient && (
+          {submission?.status === "Approved" && status !== 3 ? (
+            <div style={{ 
+              padding: "16px", 
+              background: "rgba(16, 185, 129, 0.08)", 
+              border: "1px solid rgba(16, 185, 129, 0.2)", 
+              borderRadius: "12px", 
+              color: "var(--success)", 
+              fontSize: "0.95rem",
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px"
+            }}>
+              <div style={{ fontWeight: 600 }}>⏳ Payout Release Authorized!</div>
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+                The AI Agent evaluator / arbitrator is broadcasting the transaction to release funds on the Arc network.
+              </div>
+            </div>
+          ) : (status === 1 || status === 2) && isClient && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <button onClick={handleComplete} className="btn-primary" disabled={isReleasing} style={{ justifyContent: "center" }}>
                 {isReleasing ? "Releasing Payout..." : "Approve & Release Payment"}
               </button>
               <button onClick={handleDispute} className="btn-secondary" style={{ borderColor: "var(--danger)", color: "var(--danger)" }}>
                 File Dispute
+              </button>
+            </div>
+          )}
+
+          {/* Expired state — buyer can claim refund */}
+          {status === 5 && isClient && (
+            <div style={{ background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--danger)", fontWeight: 600 }}>
+                <Clock size={20} />
+                <span>Escrow Expired</span>
+              </div>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.4 }}>
+                This escrow has expired without completion. You can claim back your <b>{budget} USDC</b>.
+              </p>
+              <button
+                onClick={handleRefundExpired}
+                className="btn-primary"
+                disabled={isRefunding}
+                style={{ background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)", borderColor: "#ef4444", justifyContent: "center" }}
+              >
+                {isRefunding ? "Processing Refund..." : `💸 Claim ${budget} USDC Refund`}
               </button>
             </div>
           )}

@@ -5,7 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useAccount, useReadContract, useWriteContract } from "wagmi";
 import { formatUnits, keccak256, toHex } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
-import { ARC_MIN_GAS_PRICE } from "@/lib/wagmi";
 import { QrCode, Camera, ShieldCheck, AlertCircle, Copy, Check } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase } from "@/lib/supabase";
@@ -179,7 +178,6 @@ export default function MeetupDetail() {
         abi: escrowAbi,
         functionName: "qrRelease",
         args: [jobId, codeToSubmit],
-        gasPrice: ARC_MIN_GAS_PRICE,
       });
 
       try {
@@ -221,7 +219,6 @@ export default function MeetupDetail() {
           abi: escrowAbi,
           functionName: "complete",
           args: [jobId, reasonHash, "0x"],
-          gasPrice: ARC_MIN_GAS_PRICE,
         });
         
         const publicClient = (await import("viem")).createPublicClient({
@@ -233,7 +230,17 @@ export default function MeetupDetail() {
           } as any,
           transport: (await import("viem")).http()
         });
-        await publicClient.waitForTransactionReceipt({ hash: txHash });
+        let receipt = null;
+        for (let i = 0; i < 30; i++) {
+          try {
+            receipt = await publicClient.getTransactionReceipt({ hash: txHash });
+            if (receipt) break;
+          } catch (e) {}
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+        if (!receipt) {
+          throw new Error("Transaction receipt not found after 60 seconds.");
+        }
 
         // Update Supabase if available
         if (hasSupabase) {
