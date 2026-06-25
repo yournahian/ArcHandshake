@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
     const data = await res.json();
 
     if (!res.ok) {
+      console.error("[Circle /api/circle/wallet] Wallet setup failed:", data);
       return NextResponse.json(
         { error: data?.message || "Failed to initiate wallet creation" },
         { status: res.status }
@@ -69,6 +70,7 @@ export async function GET(req: NextRequest) {
     const data = await res.json();
 
     if (!res.ok) {
+      console.error("[Circle /api/circle/wallet GET] Fetch wallets failed:", data);
       return NextResponse.json(
         { error: data?.message || "Failed to fetch wallets" },
         { status: res.status }

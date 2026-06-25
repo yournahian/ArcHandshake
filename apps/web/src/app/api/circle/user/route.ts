@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
     const tokenData = await tokenRes.json();
 
     if (!tokenRes.ok) {
+      console.error("[Circle /api/circle/user] Token creation failed:", tokenData);
       return NextResponse.json(
         { error: tokenData?.message || "Failed to create user token" },
         { status: tokenRes.status }
