@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const CIRCLE_API_BASE = "https://api.circle.com/v1/w3s";
 const CIRCLE_API_KEY  = process.env.CIRCLE_API_KEY!;
+const CIRCLE_API_BASE = CIRCLE_API_KEY?.startsWith("TEST_API_KEY")
+  ? "https://api-sandbox.circle.com/v1/w3s"
+  : "https://api.circle.com/v1/w3s";
 
 // POST /api/circle/user
 // Body: { userId: string }
