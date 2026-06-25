@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const CIRCLE_API_KEY  = process.env.CIRCLE_API_KEY!;
-const CIRCLE_API_BASE = CIRCLE_API_KEY?.startsWith("TEST_API_KEY")
+const CIRCLE_API_KEY  = process.env.CIRCLE_API_KEY?.trim() || "";
+const CIRCLE_API_BASE = CIRCLE_API_KEY.startsWith("TEST_API_KEY")
   ? "https://api-sandbox.circle.com/v1/w3s"
   : "https://api.circle.com/v1/w3s";
 
@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
 
     if (!tokenRes.ok) {
       console.error("[Circle /api/circle/user] Token creation failed:", tokenData);
+      console.error(`Diagnostics: keyLength=${CIRCLE_API_KEY.length}, startsWithTEST=${CIRCLE_API_KEY.startsWith("TEST_API_KEY")}, baseUrl=${CIRCLE_API_BASE}`);
       return NextResponse.json(
         { error: tokenData?.message || "Failed to create user token" },
         { status: tokenRes.status }
