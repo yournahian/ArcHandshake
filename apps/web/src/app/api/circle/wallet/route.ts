@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
     const idempotencyKey = uuidv4();
 
-    const res = await fetch(`${CIRCLE_API_BASE}/user/wallets`, {
+    const res = await fetch(`${CIRCLE_API_BASE}/user/initialize`, {
       method: "POST",
       headers: {
         "Content-Type":  "application/json",
