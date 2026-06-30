@@ -1,22 +1,25 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
-import { formatUnits, parseUnits, keccak256, toHex } from "viem";
+import { formatUnits, parseUnits, keccak256, toHex, encodeFunctionData } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import { ShieldAlert, ShieldCheck, Download, Upload, AlertCircle, RefreshCw, DollarSign, Wallet, Clock } from "lucide-react";
 import confetti from "canvas-confetti";
 import { trackJobId } from "@/lib/escrow-tracking";
 import { supabase } from "@/lib/supabase";
 import { waitForReceipt } from "@/lib/utils";
+import { useWallet } from "@/hooks/useWallet";
+import { useCircleWallet } from "@/components/CircleWalletContext";
+import { publicClient } from "@/lib/publicClient";
 
 const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x546c8C7A9d3Db29eb0c194Da0c72631F8a717b00";
 
 export default function EscrowDetail() {
   const { id } = useParams();
   const router = useRouter();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useWallet();
+  const { executeContractCall } = useCircleWallet();
   const jobId = BigInt(id as string);
 
   // Local file upload state (for demo and watermarking)
@@ -24,9 +27,6 @@ export default function EscrowDetail() {
   const [fileName, setFileName] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
 
   // Seller: set budget state
   const [budgetInput, setBudgetInput] = useState("");
@@ -41,13 +41,67 @@ export default function EscrowDetail() {
   // Buyer: fund state
   const [isFunding, setIsFunding] = useState(false);
 
-  // Read Job details from Arc Testnet contract
-  const { data: jobRaw, refetch, isPending } = useReadContract({
-    address: DEPLOYED_ESCROW_ADDRESS,
-    abi: escrowAbi,
-    functionName: "jobs",
-    args: [jobId],
-  });
+  // Custom toast notification state and alert helper to replace native browser popups
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const alert = useCallback((message: string) => {
+    const lower = message.toLowerCase();
+    const isError = lower.includes("failed") || 
+                    lower.includes("error") || 
+                    lower.includes("offline") || 
+                    lower.includes("invalid") || 
+                    lower.includes("incorrect") || 
+                    lower.includes("wrong") || 
+                    lower.includes("not set");
+    setToast({ message: message.replace(/\n/g, " "), type: isError ? "error" : "success" });
+    setTimeout(() => {
+      setToast(null);
+    }, 5000);
+  }, []);
+
+  // Read Job details from Arc Testnet contract manually using publicClient
+  const [jobRaw, setJobRaw] = useState<any>(null);
+  const [isPending, setIsPending] = useState(true);
+
+  const refetch = useCallback(async () => {
+    // Only show loading spinner on initial load when jobRaw is not yet fetched
+    if (!jobRaw) {
+      setIsPending(true);
+    }
+    try {
+      const data = await publicClient.readContract({
+        address: DEPLOYED_ESCROW_ADDRESS,
+        abi: escrowAbi,
+        functionName: "jobs",
+        args: [jobId],
+      });
+      setJobRaw(data);
+    } catch (err) {
+      console.error("Error reading job:", err);
+    } finally {
+      setIsPending(false);
+    }
+  }, [jobId, jobRaw]);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  // Unified contract writer using Circle Smart Wallet SDK
+  const writeContract = useCallback(async (
+    contractAddress: string,
+    abi: any,
+    functionName: string,
+    args: any[],
+  ): Promise<`0x${string}`> => {
+    const calldata = encodeFunctionData({ abi, functionName: functionName as any, args });
+    const txHash = await executeContractCall({
+      contractAddress,
+      abiFunctionSignature: "execute(bytes)",
+      abiParameters: [{ type: "callData", value: calldata }],
+      amount: "0",
+    });
+    return (txHash || "0x") as `0x${string}`;
+  }, [executeContractCall]);
 
   // Confetti trigger on completed + track this job ID in localStorage
   useEffect(() => {
@@ -66,20 +120,6 @@ export default function EscrowDetail() {
     } catch (e) {}
   }, [jobId]);
 
-  // Clear local counter-offer if the on-chain budget has been updated to match it,
-  // or if the escrow status is Funded or above.
-  useEffect(() => {
-    if (!jobRaw) return;
-    const onChainBudget = formatUnits(jobRaw[5], 6);
-    const onChainStatus = jobRaw[7];
-
-    if (onChainStatus >= 1 || (localCounterOffer && localCounterOffer !== "rejected" && parseFloat(onChainBudget) === parseFloat(localCounterOffer))) {
-      try {
-        localStorage.removeItem(`arc_negotiation_${jobId}`);
-      } catch (err) {}
-      setLocalCounterOffer(null);
-    }
-  }, [jobRaw, localCounterOffer, jobId]);
 
   // Submissions & release state
   const [submission, setSubmission] = useState<{ fileUrl: string; fileName: string; status: string; result: string } | null>(null);
@@ -248,7 +288,7 @@ export default function EscrowDetail() {
 
     // Set up a fallback polling interval for blockchain refetching and in case realtime/Supabase is offline
     const status = jobRaw[7];
-    if (status === 1 || status === 2) {
+    if (status <= 2) {
       const interval = setInterval(async () => {
         await fetchSubmission();
         refetch();
@@ -341,6 +381,58 @@ export default function EscrowDetail() {
     return () => clearInterval(timer);
   }, [expiredAtRaw]);
 
+  const budget = formatUnits(budgetRaw, 6);
+  const isClient = address?.toLowerCase() === client.toLowerCase();
+  const isProvider = address?.toLowerCase() === provider.toLowerCase();
+  const isEvaluator = address?.toLowerCase() === evaluator.toLowerCase();
+
+  const counterOfferAmount = (localCounterOffer && localCounterOffer !== "rejected")
+    ? localCounterOffer
+    : (submission && submission.status === "Negotiation" && submission.result.startsWith("Counter-offer: "))
+    ? submission.result.replace("Counter-offer: ", "").replace(" USDC", "")
+    : (submission && submission.status === "Negotiation" && submission.result.includes("rejected"))
+    ? "rejected"
+    : localCounterOffer;
+
+  const isNegotiationActive = !!(
+    counterOfferAmount &&
+    counterOfferAmount !== "rejected" &&
+    parseFloat(budget) !== parseFloat(counterOfferAmount)
+  );
+
+  // Clear local counter-offer if the on-chain budget has been updated to match it,
+  // or if the escrow status is Funded or above, or if it was rejected/declined.
+  useEffect(() => {
+    // If the database has no Negotiation record, then any local counter-offer is no longer active
+    const isDbNegotiating = submission && submission.status === "Negotiation";
+    if (!isDbNegotiating && !isCounterOffering && localCounterOffer && localCounterOffer !== "rejected") {
+      try {
+        localStorage.removeItem(`arc_negotiation_${jobId}`);
+      } catch (err) {}
+      setLocalCounterOffer(null);
+      return;
+    }
+
+    if (counterOfferAmount === "rejected" && localCounterOffer !== "rejected") {
+      try {
+        localStorage.setItem(`arc_negotiation_${jobId}`, "rejected");
+      } catch (err) {}
+      setLocalCounterOffer("rejected");
+      return;
+    }
+
+    if (!jobRaw) return;
+    const onChainBudget = formatUnits(jobRaw[5], 6);
+    const onChainStatus = jobRaw[7];
+
+    if (onChainStatus >= 1 || (localCounterOffer && localCounterOffer !== "rejected" && parseFloat(onChainBudget) === parseFloat(localCounterOffer))) {
+      try {
+        localStorage.removeItem(`arc_negotiation_${jobId}`);
+      } catch (err) {}
+      setLocalCounterOffer(null);
+    }
+  }, [jobRaw, localCounterOffer, jobId, counterOfferAmount, submission, isCounterOffering]);
+
   if (isPending || !jobRaw) {
     return (
       <div style={{ textAlign: "center", padding: "100px 0", color: "var(--text-secondary)" }}>
@@ -352,10 +444,6 @@ export default function EscrowDetail() {
 
   const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-  const budget = formatUnits(budgetRaw, 6);
-  const isClient = address?.toLowerCase() === client.toLowerCase();
-  const isProvider = address?.toLowerCase() === provider.toLowerCase();
-  const isEvaluator = address?.toLowerCase() === evaluator.toLowerCase();
 
   const statuses = [
     "Open",       // 0
@@ -391,13 +479,13 @@ export default function EscrowDetail() {
     setIsSettingBudget(true);
     try {
       const amount = parseUnits(targetAmount, 6);
-      const txHash = await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS,
-        abi: escrowAbi,
-        functionName: "setBudget",
-        args: [jobId, amount, "0x"],
-      });
-      await waitForReceipt(publicClient!, txHash);
+      const txHash = await writeContract(
+        DEPLOYED_ESCROW_ADDRESS,
+        escrowAbi,
+        "setBudget",
+        [jobId, amount, "0x"]
+      );
+      await waitForReceipt(publicClient, txHash);
       setBudgetInput("");
 
       // Clear negotiation state
@@ -405,6 +493,15 @@ export default function EscrowDetail() {
       if (hasSupabase) {
         try {
           await supabase.from("escrow_submissions").delete().eq("job_id", Number(jobId));
+          // Overwrite the database record with empty details to clear negotiation status if delete is restricted
+          await supabase.from("escrow_submissions").upsert({
+            job_id: Number(jobId),
+            status: "Open",
+            result: "",
+            file_url: "",
+            file_name: "",
+            source: "web"
+          });
         } catch (dbErr) {}
       }
       try {
@@ -495,18 +592,18 @@ export default function EscrowDetail() {
         outputs: [{ type: "bool" }]
       }] as const;
 
-      const approveTxHash = await writeContractAsync({
-        address: USDC_ADDRESS, abi: approveAbi, functionName: "approve",
-        args: [DEPLOYED_ESCROW_ADDRESS, budgetRaw],
-      });
-      const approveReceipt = await waitForReceipt(publicClient!, approveTxHash);
+      const approveTxHash = await writeContract(
+        USDC_ADDRESS, approveAbi, "approve",
+        [DEPLOYED_ESCROW_ADDRESS, budgetRaw]
+      );
+      const approveReceipt = await waitForReceipt(publicClient, approveTxHash);
       if (approveReceipt.status !== "success") throw new Error("USDC approval reverted!");
 
-      const fundTxHash = await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS, abi: escrowAbi, functionName: "fund",
-        args: [jobId, "0x"],
-      });
-      const fundReceipt = await waitForReceipt(publicClient!, fundTxHash);
+      const fundTxHash = await writeContract(
+        DEPLOYED_ESCROW_ADDRESS, escrowAbi, "fund",
+        [jobId, "0x"]
+      );
+      const fundReceipt = await waitForReceipt(publicClient, fundTxHash);
       if (fundReceipt.status !== "success") throw new Error("Funding transaction reverted!");
 
       refetch();
@@ -523,13 +620,13 @@ export default function EscrowDetail() {
     try {
       // 1. Submit onchain first to update status to Submitted (status === 2)
       const deliverableHash = keccak256(toHex(fileName));
-      const txHash = await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS,
-        abi: escrowAbi,
-        functionName: "submit",
-        args: [jobId, deliverableHash, "0x"],
-      });
-      await waitForReceipt(publicClient!, txHash);
+      const txHash = await writeContract(
+        DEPLOYED_ESCROW_ADDRESS,
+        escrowAbi,
+        "submit",
+        [jobId, deliverableHash, "0x"]
+      );
+      await waitForReceipt(publicClient, txHash);
 
       let finalFileUrl = fileUrl;
       const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -648,13 +745,13 @@ export default function EscrowDetail() {
       // Check if buyer IS the evaluator onchain (e.g. self-testing / custom arbitrator)
       if (evaluator.toLowerCase() === address?.toLowerCase()) {
         const reasonHash = keccak256(toHex("buyer_manual_approved"));
-        const txHash = await writeContractAsync({
-          address: DEPLOYED_ESCROW_ADDRESS,
-          abi: escrowAbi,
-          functionName: "complete",
-          args: [jobId, reasonHash, "0x"],
-        });
-        await waitForReceipt(publicClient!, txHash);
+        const txHash = await writeContract(
+          DEPLOYED_ESCROW_ADDRESS,
+          escrowAbi,
+          "complete",
+          [jobId, reasonHash, "0x"]
+        );
+        await waitForReceipt(publicClient, txHash);
 
         // Update Supabase if available
         if (hasSupabase) {
@@ -684,12 +781,10 @@ export default function EscrowDetail() {
         alert(`Payment released successfully!\nTransaction Hash: ${txHash}`);
       } else {
         // Delegate to bot backend (since evaluator is the bot address)
-        let releasedViaDb = false;
-
-        // Try writing directly to Supabase to trigger bot realtime payout
+        // Try writing directly to Supabase first to keep records in sync
         if (hasSupabase) {
           try {
-            const { error: dbErr } = await supabase.from("escrow_submissions").upsert({
+            await supabase.from("escrow_submissions").upsert({
               job_id: Number(jobId),
               buyer_authorized: true,
               status: "Approved",
@@ -698,39 +793,32 @@ export default function EscrowDetail() {
               file_name: fileName || "",
               source: "web"
             });
-            if (!dbErr) {
-              releasedViaDb = true;
-              console.log("Manual release authorization saved to Supabase.");
-            }
+            console.log("Manual release authorization saved to Supabase.");
           } catch (err) {
             console.error("Failed to save manual release authorization to Supabase:", err);
           }
         }
 
-        if (!releasedViaDb) {
-          // Fall back to Express API endpoint Proxy
-          const res = await fetch("/api/escrow-release", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jobId: Number(jobId),
-              buyerAddress: address
-            })
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.error || "Failed to release escrow payment.");
-          }
-          
-          if (data.txHash) {
-            try {
-              localStorage.setItem(`arc_completed_tx_${jobId}`, data.txHash);
-            } catch (err) {}
-          }
-          alert(`Payment released successfully via bot gateway!\nTransaction Hash: ${data.txHash}`);
-        } else {
-          alert("Payment release authorized! Payout transaction is being broadcasted by the AI Agent.");
+        // Call the bot gateway API route to execute the transaction on-chain
+        const res = await fetch("/api/escrow-release", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: Number(jobId),
+            buyerAddress: address
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to release escrow payment.");
         }
+        
+        if (data.txHash) {
+          try {
+            localStorage.setItem(`arc_completed_tx_${jobId}`, data.txHash);
+          } catch (err) {}
+        }
+        alert(`Payment released successfully via bot gateway!\nTransaction Hash: ${data.txHash}`);
 
         // Update local storage status
         try {
@@ -754,12 +842,12 @@ export default function EscrowDetail() {
 
   const handleDispute = async () => {
     try {
-      const txHash = await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS,
-        abi: escrowAbi,
-        functionName: "dispute",
-        args: [jobId],
-      });
+      const txHash = await writeContract(
+        DEPLOYED_ESCROW_ADDRESS,
+        escrowAbi,
+        "dispute",
+        [jobId]
+      );
       console.log("Dispute registered:", txHash);
       refetch();
     } catch (err) {
@@ -770,13 +858,13 @@ export default function EscrowDetail() {
   const handleRefundExpired = async () => {
     setIsRefunding(true);
     try {
-      const txHash = await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS,
-        abi: escrowAbi,
-        functionName: "refundExpired",
-        args: [jobId],
-      });
-      await waitForReceipt(publicClient!, txHash);
+      const txHash = await writeContract(
+        DEPLOYED_ESCROW_ADDRESS,
+        escrowAbi,
+        "refundExpired",
+        [jobId]
+      );
+      await waitForReceipt(publicClient, txHash);
       alert(`Refund successful! Your USDC has been returned.\nTx: ${txHash}`);
       refetch();
     } catch (err: any) {
@@ -788,29 +876,18 @@ export default function EscrowDetail() {
 
   const handleResolveDispute = async (resolution: number) => {
     try {
-      await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS,
-        abi: escrowAbi,
-        functionName: "resolveDispute",
-        args: [jobId, resolution],
-      });
+      await writeContract(
+        DEPLOYED_ESCROW_ADDRESS,
+        escrowAbi,
+        "resolveDispute",
+        [jobId, resolution]
+      );
       refetch();
     } catch (err) {
       alert("Dispute resolution failed!");
     }
   };
 
-  const counterOfferAmount = (submission && submission.status === "Negotiation" && submission.result.startsWith("Counter-offer: "))
-    ? submission.result.replace("Counter-offer: ", "").replace(" USDC", "")
-    : (submission && submission.status === "Negotiation" && submission.result.includes("rejected"))
-    ? "rejected"
-    : localCounterOffer;
-
-  const isNegotiationActive = !!(
-    counterOfferAmount &&
-    counterOfferAmount !== "rejected" &&
-    parseFloat(budget) !== parseFloat(counterOfferAmount)
-  );
 
   // Try to find a transaction hash in submission logs, API responses, or local storage
   const getTransactionHash = () => {
@@ -1035,12 +1112,19 @@ export default function EscrowDetail() {
                     const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
                     if (hasSupabase) {
                       try {
-                        await supabase.from("escrow_submissions").delete().eq("job_id", Number(jobId));
+                        await supabase.from("escrow_submissions").upsert({
+                          job_id: Number(jobId),
+                          status: "Negotiation",
+                          result: "rejected",
+                          file_url: "",
+                          file_name: "",
+                          source: "web"
+                        });
                       } catch (err) {}
                     }
                     try {
-                      localStorage.removeItem(`arc_negotiation_${jobId}`);
-                      setLocalCounterOffer(null);
+                      localStorage.setItem(`arc_negotiation_${jobId}`, "rejected");
+                      setLocalCounterOffer("rejected");
                     } catch (err) {}
                     await fetchSubmission();
                   }}
@@ -1142,10 +1226,21 @@ export default function EscrowDetail() {
             </div>
           )}
 
-          {/* BUYER: Approve & Fund — shown when budget is set but escrow not yet funded */}
           {isClient && status === 0 && budgetRaw > BigInt(0) && !isNegotiationActive && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               
+              {counterOfferAmount === "rejected" && (
+                <div style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: "12px", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px" }}>
+                  <AlertCircle size={20} style={{ color: "var(--danger)" }} />
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--danger)", display: "block" }}>Counter-Offer Declined</span>
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: "2px", display: "block" }}>
+                      The seller has declined your previous counter-offer. You can deposit at the seller's price or propose a new counter-offer below.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               <div style={{ background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <Wallet size={20} style={{ color: "var(--primary)" }} />
@@ -1290,6 +1385,32 @@ export default function EscrowDetail() {
             </div>
           )}
         </div>
+        
+        {toast && (
+          <div style={{
+            position: "fixed",
+            bottom: "24px",
+            right: "24px",
+            background: toast.type === "error" ? "rgba(220, 38, 38, 0.95)" : "rgba(5, 150, 105, 0.95)",
+            color: "#fff",
+            padding: "16px 24px",
+            borderRadius: "12px",
+            boxShadow: "0 8px 30px rgba(0, 0, 0, 0.3)",
+            fontSize: "0.95rem",
+            fontWeight: 500,
+            zIndex: 10000,
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            maxWidth: "380px",
+            backdropFilter: "blur(8px)",
+            border: toast.type === "error" ? "1px solid rgba(220, 38, 38, 0.2)" : "1px solid rgba(5, 150, 105, 0.2)",
+            transition: "all 0.2s ease"
+          }}>
+            {toast.type === "error" ? <AlertCircle size={20} /> : <ShieldCheck size={20} />}
+            <span>{toast.message}</span>
+          </div>
+        )}
 
       </div>
     </div>

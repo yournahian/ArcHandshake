@@ -1,19 +1,22 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useAccount, useReadContract, useWriteContract } from "wagmi";
-import { formatUnits, keccak256, toHex } from "viem";
+import { formatUnits, keccak256, toHex, encodeFunctionData } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import { QrCode, Camera, ShieldCheck, AlertCircle, Copy, Check } from "lucide-react";
 import confetti from "canvas-confetti";
 import { supabase } from "@/lib/supabase";
 import { useTgBackButton, isTelegram, getTgWebApp } from "@/lib/telegram";
+import { useWallet } from "@/hooks/useWallet";
+import { useCircleWallet } from "@/components/CircleWalletContext";
+import { publicClient } from "@/lib/publicClient";
 
 export default function MeetupDetail() {
   const { id } = useParams();
   const router = useRouter();
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useWallet();
+  const { executeContractCall } = useCircleWallet();
   const jobId = BigInt(id as string);
 
   const [copied, setCopied] = useState(false);
@@ -24,18 +27,61 @@ export default function MeetupDetail() {
   const [secretConfirmationCode, setSecretConfirmationCode] = useState("laptop-received");
   const [submission, setSubmission] = useState<{ fileUrl: string; fileName: string; status: string; result: string } | null>(null);
 
+  // Custom toast notification state and alert helper to replace native browser popups
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const alert = useCallback((message: string) => {
+    const lower = message.toLowerCase();
+    const isError = lower.includes("failed") || 
+                    lower.includes("error") || 
+                    lower.includes("offline") || 
+                    lower.includes("invalid") || 
+                    lower.includes("incorrect") || 
+                    lower.includes("wrong") || 
+                    lower.includes("not set");
+    setToast({ message: message.replace(/\n/g, " "), type: isError ? "error" : "success" });
+    setTimeout(() => {
+      setToast(null);
+    }, 5000);
+  }, []);
+
   // TG Back Button — wired after mount, placed at top per hooks rules
   useTgBackButton();
 
-  const { writeContractAsync } = useWriteContract();
+  // Read Job Details from contract manually using publicClient
+  const [jobRaw, setJobRaw] = useState<any>(null);
 
-  // Read Job Details from contract
-  const { data: jobRaw, refetch } = useReadContract({
-    address: DEPLOYED_ESCROW_ADDRESS,
-    abi: escrowAbi,
-    functionName: "jobs",
-    args: [jobId],
-  });
+  const refetch = useCallback(async () => {
+    try {
+      const data = await publicClient.readContract({
+        address: DEPLOYED_ESCROW_ADDRESS,
+        abi: escrowAbi,
+        functionName: "jobs",
+        args: [jobId],
+      });
+      setJobRaw(data);
+    } catch (e) {}
+  }, [jobId]);
+
+  useEffect(() => {
+    refetch();
+  }, [refetch]);
+
+  // Unified contract writer using Circle Smart Wallet SDK
+  const writeContract = useCallback(async (
+    contractAddress: string,
+    abi: any,
+    functionName: string,
+    args: any[],
+  ): Promise<`0x${string}`> => {
+    const calldata = encodeFunctionData({ abi, functionName: functionName as any, args });
+    const txHash = await executeContractCall({
+      contractAddress,
+      abiFunctionSignature: "execute(bytes)",
+      abiParameters: [{ type: "callData", value: calldata }],
+      amount: "0",
+    });
+    return (txHash || "0x") as `0x${string}`;
+  }, [executeContractCall]);
 
   // Redirect back to escrow detail page if this is a digital escrow OR it's not funded yet
   useEffect(() => {
@@ -142,14 +188,7 @@ export default function MeetupDetail() {
     };
   }, [jobRaw, jobId]);
 
-  if (!jobRaw) {
-    return (
-      <div style={{ textAlign: "center", padding: "80px 0", color: "var(--text-secondary)" }}>
-        Loading meetup contract details...
-      </div>
-    );
-  }
-
+  // Map tuple results from contract safely
   const [
     _,
     client,
@@ -162,11 +201,24 @@ export default function MeetupDetail() {
     hook,
     deliverableHash,
     qrConfirmationHash
-  ] = jobRaw;
+  ] = jobRaw || [
+    undefined,
+    "",
+    "",
+    "",
+    "",
+    BigInt(0),
+    BigInt(0),
+    0,
+    "",
+    "0x",
+    "0x"
+  ];
 
-  const budget = formatUnits(budgetRaw, 6);
-  const isClient = address?.toLowerCase() === client.toLowerCase();
-  const isProvider = address?.toLowerCase() === provider.toLowerCase();
+  const budget = budgetRaw ? formatUnits(budgetRaw, 6) : "0";
+  const isClient = address && client ? address.toLowerCase() === client.toLowerCase() : false;
+  const isProvider = address && provider ? address.toLowerCase() === provider.toLowerCase() : false;
+
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(secretConfirmationCode);
@@ -175,18 +227,43 @@ export default function MeetupDetail() {
   };
 
   const handleQrRelease = async (codeToSubmit: string) => {
+    // Validate the confirmation code locally first to prevent sending invalid transactions
+    const computedHash = keccak256(toHex(codeToSubmit));
+    if (computedHash !== qrConfirmationHash) {
+      alert("Invalid verification code! Please check the code and try again.");
+      return;
+    }
+
     setIsTxPending(true);
     try {
-      const txHash = await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS,
-        abi: escrowAbi,
-        functionName: "qrRelease",
-        args: [jobId, codeToSubmit],
-      });
+      const txHash = await writeContract(
+        DEPLOYED_ESCROW_ADDRESS,
+        escrowAbi,
+        "qrRelease",
+        [jobId, codeToSubmit]
+      );
 
       try {
         localStorage.setItem(`arc_completed_tx_${jobId}`, txHash);
       } catch (e) {}
+
+      // Save the release transaction hash to Supabase so the buyer is notified
+      const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (hasSupabase) {
+        try {
+          await supabase.from("escrow_submissions").upsert({
+            job_id: Number(jobId),
+            status: "Approved",
+            result: `Escrow payment released by QR code. Tx Hash: ${txHash}`,
+            file_url: codeToSubmit,
+            file_name: "meetup_code",
+            source: "web"
+          });
+          console.log("Release transaction hash saved to Supabase.");
+        } catch (dbErr) {
+          console.error("Failed to save release tx hash to Supabase:", dbErr);
+        }
+      }
 
       confetti({
         particleCount: 100,
@@ -218,32 +295,16 @@ export default function MeetupDetail() {
       // Check if buyer IS the arbitrator/evaluator onchain (e.g. self-testing / custom arbitrator)
       if (evaluator.toLowerCase() === address?.toLowerCase()) {
         const reasonHash = keccak256(toHex("buyer_manual_approved"));
-        const txHash = await writeContractAsync({
-          address: DEPLOYED_ESCROW_ADDRESS,
-          abi: escrowAbi,
-          functionName: "complete",
-          args: [jobId, reasonHash, "0x"],
-        });
+        const txHash = await writeContract(
+          DEPLOYED_ESCROW_ADDRESS,
+          escrowAbi,
+          "complete",
+          [jobId, reasonHash, "0x"]
+        );
         
-        const publicClient = (await import("viem")).createPublicClient({
-          chain: {
-            id: 5042002,
-            name: "Arc Testnet",
-            nativeCurrency: { name: "Arc", symbol: "ARC", decimals: 18 },
-            rpcUrls: { default: { http: ["https://rpc.testnet.arc.network"] } }
-          } as any,
-          transport: (await import("viem")).http()
-        });
-        let receipt = null;
-        for (let i = 0; i < 30; i++) {
-          try {
-            receipt = await publicClient.getTransactionReceipt({ hash: txHash });
-            if (receipt) break;
-          } catch (e) {}
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-        }
+        const receipt = await waitForReceipt(publicClient, txHash);
         if (!receipt) {
-          throw new Error("Transaction receipt not found after 60 seconds.");
+          throw new Error("Transaction receipt not found.");
         }
 
         // Update Supabase if available
@@ -266,12 +327,10 @@ export default function MeetupDetail() {
         alert(`Payment released successfully!\nTransaction Hash: ${txHash}`);
       } else {
         // Delegate to bot backend (since evaluator is the bot address)
-        let releasedViaDb = false;
-
-        // Try writing directly to Supabase to trigger bot realtime payout
+        // Try writing directly to Supabase first to keep records in sync
         if (hasSupabase) {
           try {
-            const { error: dbErr } = await supabase.from("escrow_submissions").upsert({
+            await supabase.from("escrow_submissions").upsert({
               job_id: Number(jobId),
               buyer_authorized: true,
               status: "Approved",
@@ -280,38 +339,46 @@ export default function MeetupDetail() {
               file_name: "meetup_code",
               source: "web"
             });
-            if (!dbErr) {
-              releasedViaDb = true;
-              console.log("Manual release authorization saved to Supabase.");
-            }
+            console.log("Manual release authorization saved to Supabase.");
           } catch (err) {
             console.error("Failed to save manual release authorization to Supabase:", err);
           }
         }
 
-        if (!releasedViaDb) {
-          // Fall back to Express API endpoint Proxy
-          const res = await fetch("/api/escrow-release", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jobId: Number(jobId),
-              buyerAddress: address
-            })
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.error || "Failed to release escrow payment.");
-          }
-          if (data.txHash) {
-            try {
-              localStorage.setItem(`arc_completed_tx_${jobId}`, data.txHash);
-            } catch (err) {}
-          }
-          alert(`Payment released successfully via bot gateway!\nTransaction Hash: ${data.txHash}`);
-        } else {
-          alert("Payment release authorized! Payout transaction is being broadcasted by the AI Agent.");
+        // Call the bot gateway API route to execute the transaction on-chain
+        const res = await fetch("/api/escrow-release", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: Number(jobId),
+            buyerAddress: address
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to release escrow payment.");
         }
+        if (data.txHash) {
+          try {
+            localStorage.setItem(`arc_completed_tx_${jobId}`, data.txHash);
+          } catch (err) {}
+
+          // Save the transaction hash to Supabase so the seller can see it too
+          if (hasSupabase) {
+            try {
+              await supabase.from("escrow_submissions").upsert({
+                job_id: Number(jobId),
+                buyer_authorized: true,
+                status: "Approved",
+                result: `Escrow payment released manually by buyer. Tx Hash: ${data.txHash}`,
+                file_url: secretConfirmationCode || "",
+                file_name: "meetup_code",
+                source: "web"
+              });
+            } catch (dbErr) {}
+          }
+        }
+        alert(`Payment released successfully via bot gateway!\nTransaction Hash: ${data.txHash}`);
         refetch();
       }
     } catch (err: any) {
@@ -345,7 +412,12 @@ export default function MeetupDetail() {
 
   return (
     <div style={{ maxWidth: "600px", margin: "0 auto", padding: "16px 0" }}>
-      <div className="glass-card" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "28px", textAlign: "center" }}>
+      {!jobRaw ? (
+        <div style={{ textAlign: "center", padding: "80px 0", color: "var(--text-secondary)" }}>
+          Loading meetup contract details...
+        </div>
+      ) : (
+        <div className="glass-card" style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "28px", textAlign: "center" }}>
         
         {/* Title */}
         <div>
@@ -526,7 +598,35 @@ export default function MeetupDetail() {
           </div>
         )}
 
-      </div>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{
+          position: "fixed",
+          bottom: "24px",
+          right: "24px",
+          background: toast.type === "error" ? "rgba(220, 38, 38, 0.95)" : "rgba(5, 150, 105, 0.95)",
+          color: "#fff",
+          padding: "16px 24px",
+          borderRadius: "12px",
+          boxShadow: "0 8px 30px rgba(0, 0, 0, 0.3)",
+          fontSize: "0.95rem",
+          fontWeight: 500,
+          zIndex: 10000,
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          maxWidth: "380px",
+          backdropFilter: "blur(8px)",
+          border: toast.type === "error" ? "1px solid rgba(220, 38, 38, 0.2)" : "1px solid rgba(5, 150, 105, 0.2)",
+          transition: "all 0.2s ease"
+        }}>
+          {toast.type === "error" ? <AlertCircle size={20} /> : <ShieldCheck size={20} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
     </div>
   );
 }

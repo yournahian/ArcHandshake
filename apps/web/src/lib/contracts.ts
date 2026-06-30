@@ -31,6 +31,13 @@ export const escrowAbi = [
   // Functions
   {
     type: "function",
+    name: "nextJobId",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
     name: "createJob",
     stateMutability: "nonpayable",
     inputs: [
@@ -235,9 +242,9 @@ export const treasuryAbi = [
 
 
 // Read addresses from public env or fallback to deployed testnet addresses
-export const DEPLOYED_ESCROW_ADDRESS = (process.env.NEXT_PUBLIC_ESCROW_ADDRESS || "0x40aC372780Db3772E1810A515b8D0b71081902be") as `0x${string}`;
+export const DEPLOYED_ESCROW_ADDRESS = (process.env.NEXT_PUBLIC_ESCROW_ADDRESS || "0xA54c4B856a42781c87867106E742c5651b81e037") as `0x${string}`;
 export const DEPLOYED_TREASURY_ADDRESS = (process.env.NEXT_PUBLIC_TREASURY_ADDRESS || "0x29984fd25B15Cd271e4ebAD350a2Ca2269a65304") as `0x${string}`;
-export const DEPLOYED_FACTORY_ADDRESS = (process.env.NEXT_PUBLIC_FACTORY_ADDRESS || "0x0000000000000000000000000000000000000000") as `0x${string}`;
+export const DEPLOYED_FACTORY_ADDRESS = (process.env.NEXT_PUBLIC_FACTORY_ADDRESS || "0x283371AC03DeBABdd6Ef8ABef7547336c6DFB276") as `0x${string}`;
 
 export const factoryAbi = [
   {

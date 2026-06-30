@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
-import { parseUnits, keccak256, toHex, encodePacked, decodeEventLog } from "viem";
+import { parseUnits, keccak256, toHex, encodePacked, decodeEventLog, encodeFunctionData } from "viem";
 import { Handshake, HelpCircle, ShieldCheck, QrCode } from "lucide-react";
 import { DEPLOYED_ESCROW_ADDRESS, escrowAbi } from "@/lib/contracts";
 import { trackJobId, setJobType } from "@/lib/escrow-tracking";
 import { supabase } from "@/lib/supabase";
 import { waitForReceipt } from "@/lib/utils";
+import { useWallet } from "@/hooks/useWallet";
+import { useCircleWallet } from "@/components/CircleWalletContext";
+import { publicClient } from "@/lib/publicClient";
 
 // Fallback USDC address on Arc Testnet
 const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
@@ -21,8 +23,24 @@ const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x546c8
 function CreateEscrowContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { isConnected, address } = useAccount();
-  const publicClient = usePublicClient();
+  const { isConnected, address } = useWallet();
+  const { executeContractCall } = useCircleWallet();
+
+  // Unified contract writer: uses Circle SDK for Circle wallet
+  const writeContract = useCallback(async (
+    functionName: string,
+    args: any[],
+  ): Promise<`0x${string}`> => {
+    // Encode the full calldata using viem, then submit as raw data to Circle
+    const calldata = encodeFunctionData({ abi: escrowAbi, functionName: functionName as any, args });
+    const txHash = await executeContractCall({
+      contractAddress: DEPLOYED_ESCROW_ADDRESS as string,
+      abiFunctionSignature: "execute(bytes)",  // dummy — callData overrides below
+      abiParameters: [{ type: "callData", value: calldata }],
+      amount: "0",
+    });
+    return (txHash || "0x") as `0x${string}`;
+  }, [executeContractCall]);
 
   // Form State
   const [provider, setProvider] = useState("");
@@ -43,7 +61,6 @@ function CreateEscrowContent() {
   const [isPollingBudget, setIsPollingBudget] = useState(false);
   const [budgetFound, setBudgetFound] = useState(false);
 
-  const { writeContractAsync } = useWriteContract();
 
   // Pre-fill parameters from Telegram query params
   useEffect(() => {
@@ -108,47 +125,30 @@ function CreateEscrowContent() {
       const expiredAt = BigInt(Math.floor(Date.now() / 1000) + parseInt(hours) * 3600);
       const budgetUSDC = parseUnits(budget, 6);
 
-      // Step 2.1: Call createJob onchain
-      const txHash = await writeContractAsync({
+      // Pre-query the next job ID from the contract to know the exact ID that will be created
+      const onchainJobId = await publicClient.readContract({
         address: DEPLOYED_ESCROW_ADDRESS,
         abi: escrowAbi,
-        functionName: "createJob",
-        args: [
-          provider as `0x${string}`,
-          evaluator as `0x${string}`,
-          expiredAt,
-          description,
-          "0x0000000000000000000000000000000000000000" as `0x${string}`
-        ],
-      });
+        functionName: "nextJobId",
+      }) as bigint;
+
+      // Step 2.1: Call createJob onchain
+      const txHash = await writeContract("createJob", [
+        provider as `0x${string}`,
+        evaluator as `0x${string}`,
+        expiredAt,
+        description,
+        "0x0000000000000000000000000000000000000000" as `0x${string}`
+      ]);
 
       console.log("CreateJob Transaction Hash:", txHash);
-      
-      // Wait for transaction receipt
-      const receipt = await waitForReceipt(publicClient!, txHash);
-      if (receipt.status !== "success") {
-        throw new Error("Create escrow transaction reverted onchain!");
+
+      if (txHash && txHash !== "0x" && publicClient) {
+        const receipt = await waitForReceipt(publicClient, txHash);
+        if (receipt.status !== "success") throw new Error("Create escrow transaction reverted onchain!");
       }
 
-      // Parse the actual Job ID from the transaction logs
-      let createdJobId = BigInt(1); // Default fallback
-      for (const log of receipt.logs) {
-        try {
-          const decoded = decodeEventLog({
-            abi: escrowAbi,
-            eventName: "JobCreated",
-            topics: log.topics,
-            data: log.data,
-          });
-          if (decoded && decoded.args) {
-            //@ts-ignore
-            createdJobId = decoded.args.jobId;
-            break;
-          }
-        } catch (e) {
-          // Skip logs that do not match the event signature
-        }
-      }
+      const createdJobId = onchainJobId;
       setJobId(createdJobId);
       // Track this job ID in localStorage so it shows on the escrow list
       trackJobId(Number(createdJobId));
@@ -157,15 +157,10 @@ function CreateEscrowContent() {
       // If physical escrow and QR word is set, upload the QR code hash
       if (escrowType === "physical" && qrCodeWord) {
         const qrHash = keccak256(toHex(qrCodeWord));
-        const qrTxHash = await writeContractAsync({
-          address: DEPLOYED_ESCROW_ADDRESS,
-          abi: escrowAbi,
-          functionName: "setQrConfirmation",
-          args: [createdJobId, qrHash],
-        });
-        const qrReceipt = await waitForReceipt(publicClient!, qrTxHash);
-        if (qrReceipt.status !== "success") {
-          throw new Error("Failed to set physical QR confirmation code onchain!");
+        const qrTxHash = await writeContract("setQrConfirmation", [createdJobId, qrHash]);
+        if (qrTxHash && qrTxHash !== "0x" && publicClient) {
+          const qrReceipt = await waitForReceipt(publicClient, qrTxHash);
+          if (qrReceipt.status !== "success") throw new Error("Failed to set physical QR confirmation code onchain!");
         }
 
         // Save to Supabase Cloud Database
@@ -200,15 +195,10 @@ function CreateEscrowContent() {
 
       if (walletIsProvider) {
         // setBudget is only callable by the provider — do it now while we have their wallet
-        const setBudgetTxHash = await writeContractAsync({
-          address: DEPLOYED_ESCROW_ADDRESS,
-          abi: escrowAbi,
-          functionName: "setBudget",
-          args: [createdJobId, budgetUSDC, "0x"],
-        });
-        const setBudgetReceipt = await waitForReceipt(publicClient!, setBudgetTxHash);
-        if (setBudgetReceipt.status !== "success") {
-          throw new Error("setBudget transaction reverted!");
+        const setBudgetTxHash = await writeContract("setBudget", [createdJobId, budgetUSDC, "0x"]);
+        if (setBudgetTxHash && setBudgetTxHash !== "0x" && publicClient) {
+          const setBudgetReceipt = await waitForReceipt(publicClient, setBudgetTxHash);
+          if (setBudgetReceipt.status !== "success") throw new Error("setBudget transaction reverted!");
         }
         setStep(3); // Budget set — proceed to approve + fund
       } else {
