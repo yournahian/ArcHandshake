@@ -11,6 +11,7 @@ import { useTgBackButton, isTelegram, getTgWebApp } from "@/lib/telegram";
 import { useWallet } from "@/hooks/useWallet";
 import { useCircleWallet } from "@/components/CircleWalletContext";
 import { publicClient } from "@/lib/publicClient";
+import { waitForReceipt } from "@/lib/utils";
 
 export default function MeetupDetail() {
   const { id } = useParams();

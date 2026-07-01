@@ -30,11 +30,13 @@ function CreateEscrowContent() {
   const writeContract = useCallback(async (
     functionName: string,
     args: any[],
+    contractAddress: string = DEPLOYED_ESCROW_ADDRESS,
+    abi: any = escrowAbi,
   ): Promise<`0x${string}`> => {
     // Encode the full calldata using viem, then submit as raw data to Circle
-    const calldata = encodeFunctionData({ abi: escrowAbi, functionName: functionName as any, args });
+    const calldata = encodeFunctionData({ abi, functionName: functionName as any, args: args as any });
     const txHash = await executeContractCall({
-      contractAddress: DEPLOYED_ESCROW_ADDRESS as string,
+      contractAddress,
       abiFunctionSignature: "execute(bytes)",  // dummy — callData overrides below
       abiParameters: [{ type: "callData", value: calldata }],
       amount: "0",
@@ -254,12 +256,12 @@ function CreateEscrowContent() {
         }
       ] as const;
 
-      const approveTxHash = await writeContractAsync({
-        address: USDC_ADDRESS,
-        abi: approveAbi,
-        functionName: "approve",
-        args: [DEPLOYED_ESCROW_ADDRESS, budgetUSDC],
-      });
+      const approveTxHash = await writeContract(
+        "approve",
+        [DEPLOYED_ESCROW_ADDRESS, budgetUSDC],
+        USDC_ADDRESS,
+        approveAbi
+      );
       
       const approveReceipt = await waitForReceipt(publicClient!, approveTxHash);
       if (approveReceipt.status !== "success") {
@@ -269,12 +271,12 @@ function CreateEscrowContent() {
       // Step 3.2: Fund Escrow — pulls approved USDC from wallet into escrow
       // Note: setBudget() is restricted to the provider/seller role in the contract.
       // The fund() function reads the approved allowance amount directly.
-      const fundTxHash = await writeContractAsync({
-        address: DEPLOYED_ESCROW_ADDRESS,
-        abi: escrowAbi,
-        functionName: "fund",
-        args: [jobId, "0x"],
-      });
+      const fundTxHash = await writeContract(
+        "fund",
+        [jobId, "0x"],
+        DEPLOYED_ESCROW_ADDRESS,
+        escrowAbi
+      );
 
       const fundReceipt = await waitForReceipt(publicClient!, fundTxHash);
       if (fundReceipt.status !== "success") {
