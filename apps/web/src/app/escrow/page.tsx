@@ -3,21 +3,26 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAccount, useReadContract } from "wagmi";
 import { formatUnits } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import { Plus, Search, ExternalLink, Clock, ShieldCheck, ShieldAlert, Activity } from "lucide-react";
+import { useWallet } from "@/hooks/useWallet";
+import { publicClient } from "@/lib/publicClient";
 
 import { getStoredJobIds, trackJobId } from "@/lib/escrow-tracking";
 
 // Single job row — fetches live data from chain
 function JobRow({ jobId }: { jobId: number }) {
-  const { data: jobRaw } = useReadContract({
-    address: DEPLOYED_ESCROW_ADDRESS,
-    abi: escrowAbi,
-    functionName: "jobs",
-    args: [BigInt(jobId)],
-  });
+  const [jobRaw, setJobRaw] = useState<any>(null);
+
+  useEffect(() => {
+    publicClient.readContract({
+      address: DEPLOYED_ESCROW_ADDRESS,
+      abi: escrowAbi,
+      functionName: "jobs",
+      args: [BigInt(jobId)],
+    }).then(data => setJobRaw(data)).catch(() => {});
+  }, [jobId]);
 
   const statuses = ["Open", "Funded", "Submitted", "Completed", "Rejected", "Expired", "Disputed"];
   const badgeClass = (s: number) =>
@@ -76,19 +81,23 @@ function JobRow({ jobId }: { jobId: number }) {
 
 // Reads nextJobId from contract and renders last N on-chain jobs
 function RecentJobs() {
-  const { data: nextJobIdRaw } = useReadContract({
-    address: DEPLOYED_ESCROW_ADDRESS,
-    abi: [
-      {
-        type: "function",
-        name: "nextJobId",
-        stateMutability: "view",
-        inputs: [],
-        outputs: [{ type: "uint256" }],
-      },
-    ] as const,
-    functionName: "nextJobId",
-  });
+  const [nextJobIdRaw, setNextJobIdRaw] = useState<bigint | null>(null);
+
+  useEffect(() => {
+    publicClient.readContract({
+      address: DEPLOYED_ESCROW_ADDRESS,
+      abi: [
+        {
+          type: "function",
+          name: "nextJobId",
+          stateMutability: "view",
+          inputs: [],
+          outputs: [{ type: "uint256" }],
+        },
+      ] as const,
+      functionName: "nextJobId",
+    }).then(data => setNextJobIdRaw(data as bigint)).catch(() => {});
+  }, []);
 
   const totalJobs = nextJobIdRaw ? Number(nextJobIdRaw) - 1 : 0;
   const recentCount = Math.min(totalJobs, 10);
@@ -118,7 +127,7 @@ function RecentJobs() {
 
 export default function EscrowList() {
   const router = useRouter();
-  const { address } = useAccount();
+  const { address } = useWallet();
 
   const [knownIds, setKnownIds] = useState<number[]>([]);
   const [searchInput, setSearchInput] = useState("");

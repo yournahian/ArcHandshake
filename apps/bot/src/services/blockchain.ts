@@ -156,7 +156,7 @@ export const treasuryAbi = [
 ] as const;
 
 // Deployed Addresses
-export const DEPLOYED_ESCROW_ADDRESS   = (process.env.ESCROW_ADDRESS   || "0x40aC372780Db3772E1810A515b8D0b71081902be") as `0x${string}`;
+export const DEPLOYED_ESCROW_ADDRESS   = (process.env.ESCROW_ADDRESS   || "0xA54c4B856a42781c87867106E742c5651b81e037") as `0x${string}`;
 export const DEPLOYED_TREASURY_ADDRESS = (process.env.TREASURY_ADDRESS || "0x29984fd25B15Cd271e4ebAD350a2Ca2269a65304") as `0x${string}`;
 
 /**

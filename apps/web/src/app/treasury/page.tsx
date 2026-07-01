@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount, useWriteContract, usePublicClient } from "wagmi";
-import { decodeEventLog } from "viem";
+import { decodeEventLog, encodeFunctionData } from "viem";
 import { DEPLOYED_FACTORY_ADDRESS, factoryAbi } from "@/lib/contracts";
 import { Landmark, PlusCircle, ArrowRight, RefreshCw, AlertCircle, Settings } from "lucide-react";
 import { waitForReceipt } from "@/lib/utils";
 import confetti from "canvas-confetti";
+import { useWallet } from "@/hooks/useWallet";
+import { useCircleWallet } from "@/components/CircleWalletContext";
+import { publicClient } from "@/lib/publicClient";
 
 const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_ADDRESS || "0x3600000000000000000000000000000000000000") as `0x${string}`;
 
@@ -16,9 +18,25 @@ export default function TreasuryLauncher() {
   useEffect(() => { setMounted(true); }, []);
 
   const router = useRouter();
-  const { isConnected } = useAccount();
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
+  const { isConnected } = useWallet();
+  const { executeContractCall } = useCircleWallet();
+
+  // Unified contract writer using Circle Smart Wallet SDK
+  const writeContract = useCallback(async (
+    contractAddress: string,
+    abi: any,
+    functionName: string,
+    args: any[],
+  ): Promise<`0x${string}`> => {
+    const calldata = encodeFunctionData({ abi, functionName: functionName as any, args });
+    const txHash = await executeContractCall({
+      contractAddress,
+      abiFunctionSignature: "execute(bytes)",
+      abiParameters: [{ type: "callData", value: calldata }],
+      amount: "0",
+    });
+    return (txHash || "0x") as `0x${string}`;
+  }, [executeContractCall]);
 
   const [existingAddress, setExistingAddress] = useState("");
   const [isDeploying, setIsDeploying] = useState(false);
@@ -37,15 +55,15 @@ export default function TreasuryLauncher() {
     setIsDeploying(true);
     setTxPendingMessage("Requesting deployment transaction…");
     try {
-      const hash = await writeContractAsync({
-        address: DEPLOYED_FACTORY_ADDRESS,
-        abi: factoryAbi,
-        functionName: "deployTreasury",
-        args: [USDC_ADDRESS],
-      });
+      const hash = await writeContract(
+        DEPLOYED_FACTORY_ADDRESS,
+        factoryAbi,
+        "deployTreasury",
+        [USDC_ADDRESS]
+      );
 
       setTxPendingMessage("Broadcasting & waiting for deployment confirmation…");
-      const receipt = await waitForReceipt(publicClient!, hash);
+      const receipt = await waitForReceipt(publicClient, hash);
 
       if (receipt.status !== "success") {
         throw new Error("Factory deployment transaction reverted!");

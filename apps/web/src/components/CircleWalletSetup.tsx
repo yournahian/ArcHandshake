@@ -7,7 +7,7 @@
  * Guides them through the PIN + security-question challenge flow.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useCircleWallet } from "./CircleWalletContext";
 import type { WalletStatus } from "./CircleWalletContext";
 import { ShieldCheck, Loader2, AlertCircle, X, Wallet, ArrowRight } from "lucide-react";
@@ -16,9 +16,19 @@ export function CircleWalletSetup() {
   const { status, wallet, errorMessage, setupWallet } = useCircleWallet();
   const [dismissed, setDismissed] = useState(false);
   const [setting, setSetting] = useState(false);
+  const [isTelegram, setIsTelegram] = useState(false);
 
-  // Only show when setup is required and not dismissed
+  useEffect(() => {
+    setIsTelegram(!!(window as any).Telegram?.WebApp?.initData);
+  }, []);
+
+  // On web, the header handles Circle wallet — only auto-show in Telegram Mini App
+  if (!isTelegram) return null;
+
+  // Only show when Circle wallet setup is required and not dismissed
   if (dismissed || status === "idle" || status === "ready") return null;
+
+  // Don't show if the wallet is already live
   if (wallet?.state === "LIVE") return null;
 
   // Re-assert the full WalletStatus union after the early-return guards above

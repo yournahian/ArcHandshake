@@ -2,8 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
-import { formatUnits, parseUnits } from "viem";
+import { formatUnits, parseUnits, encodeFunctionData } from "viem";
 import { treasuryAbi } from "@/lib/contracts";
 import {
   Landmark, ArrowUpRight, Vote, Check, X, Coins,
@@ -15,6 +14,9 @@ import confetti from "canvas-confetti";
 import { waitForReceipt } from "@/lib/utils";
 import { CircleWalletCard } from "@/components/CircleWalletCard";
 import { useTgBackButton } from "@/lib/telegram";
+import { useWallet } from "@/hooks/useWallet";
+import { useCircleWallet } from "@/components/CircleWalletContext";
+import { publicClient } from "@/lib/publicClient";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,6 +98,7 @@ function ProposalRow({
   membersCount,
   onRefresh,
   treasuryAddress,
+  writeContract,
 }: {
   proposal: Proposal;
   isMember: boolean;
@@ -103,20 +106,38 @@ function ProposalRow({
   membersCount: number;
   onRefresh: () => void;
   treasuryAddress: `0x${string}`;
+  writeContract: (
+    contractAddress: string,
+    abi: any,
+    functionName: string,
+    args: any[],
+  ) => Promise<`0x${string}`>;
 }) {
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
   const [isVoting, setIsVoting] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const countdown = useCountdown(proposal.votingDeadline);
 
-  const { data: alreadyVoted, refetch: refetchVoted } = useReadContract({
-    address: treasuryAddress,
-    abi: treasuryAbi,
-    functionName: "hasVoted",
-    args: [BigInt(proposal.id), (address || "0x0000000000000000000000000000000000000000") as `0x${string}`],
-  });
+  const [alreadyVoted, setAlreadyVoted] = useState<boolean>(false);
+
+  const refetchVoted = useCallback(async () => {
+    if (!address) return;
+    try {
+      const voted = await publicClient.readContract({
+        address: treasuryAddress,
+        abi: treasuryAbi,
+        functionName: "hasVoted",
+        args: [BigInt(proposal.id), address as `0x${string}`],
+      });
+      setAlreadyVoted(voted as boolean);
+    } catch (err) {
+      console.error("Error checking vote:", err);
+    }
+  }, [proposal.id, address, treasuryAddress]);
+
+  useEffect(() => {
+    refetchVoted();
+  }, [refetchVoted]);
 
   const totalVotes   = Number(proposal.votesFor) + Number(proposal.votesAgainst);
   const forPct       = totalVotes > 0 ? Math.round((Number(proposal.votesFor) / totalVotes) * 100) : 0;
@@ -130,13 +151,13 @@ function ProposalRow({
     if (!isMember || alreadyVoted) return;
     setIsVoting(true);
     try {
-      const hash = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "vote",
-        args: [BigInt(proposal.id), support],
-      });
-      await waitForReceipt(publicClient!, hash);
+      const hash = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "vote",
+        [BigInt(proposal.id), support]
+      );
+      await waitForReceipt(publicClient, hash);
       await refetchVoted();
       onRefresh();
     } catch (err: any) {
@@ -149,13 +170,13 @@ function ProposalRow({
   const handleExecute = async () => {
     setIsExecuting(true);
     try {
-      const hash = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "executeSpend",
-        args: [BigInt(proposal.id)],
-      });
-      await waitForReceipt(publicClient!, hash);
+      const hash = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "executeSpend",
+        [BigInt(proposal.id)]
+      );
+      await waitForReceipt(publicClient, hash);
       confetti({ particleCount: 80, spread: 60 });
       onRefresh();
     } catch (err: any) {
@@ -300,49 +321,95 @@ export default function TreasuryDashboard() {
   const params = useParams();
   const treasuryAddress = params.address as `0x${string}`;
 
-  const { address, isConnected } = useAccount();
-  const publicClient = usePublicClient();
-  const { writeContractAsync } = useWriteContract();
+  const { address, isConnected } = useWallet();
+  const { executeContractCall } = useCircleWallet();
 
-  // ── On-chain reads ────────────────────────────────────────────────────────
+  // ── On-chain reads (manually fetched using publicClient) ──────────────────────
 
-  const { data: balanceRaw, refetch: refetchBalance } = useReadContract({
-    address: treasuryAddress,
-    abi: treasuryAbi,
-    functionName: "getBalance",
-  });
+  const [balanceRaw, setBalanceRaw] = useState<bigint | null>(null);
+  const [membersCountRaw, setMembersCountRaw] = useState<bigint | null>(null);
+  const [nextProposalIdRaw, setNextProposalIdRaw] = useState<bigint | null>(null);
+  const [adminAddress, setAdminAddress] = useState<string | null>(null);
+  const [isMemberRaw, setIsMemberRaw] = useState<boolean | null>(null);
+  const [spendingPolicyRaw, setSpendingPolicyRaw] = useState<any>(null);
 
-  const { data: membersCountRaw, refetch: refetchMembers } = useReadContract({
-    address: treasuryAddress,
-    abi: treasuryAbi,
-    functionName: "getMembersCount",
-  });
+  const refetchBalance = useCallback(async () => {
+    try {
+      const data = await publicClient.readContract({
+        address: treasuryAddress,
+        abi: treasuryAbi,
+        functionName: "getBalance",
+      });
+      setBalanceRaw(data as bigint);
+    } catch (e) {}
+  }, [treasuryAddress]);
 
-  const { data: nextProposalIdRaw, refetch: refetchNextId } = useReadContract({
-    address: treasuryAddress,
-    abi: treasuryAbi,
-    functionName: "nextProposalId",
-  });
+  const refetchMembers = useCallback(async () => {
+    try {
+      const data = await publicClient.readContract({
+        address: treasuryAddress,
+        abi: treasuryAbi,
+        functionName: "getMembersCount",
+      });
+      setMembersCountRaw(data as bigint);
+    } catch (e) {}
+  }, [treasuryAddress]);
 
-  const { data: adminAddress } = useReadContract({
-    address: treasuryAddress,
-    abi: treasuryAbi,
-    functionName: "admin",
-  });
+  const refetchNextId = useCallback(async () => {
+    try {
+      const data = await publicClient.readContract({
+        address: treasuryAddress,
+        abi: treasuryAbi,
+        functionName: "nextProposalId",
+      });
+      setNextProposalIdRaw(data as bigint);
+    } catch (e) {}
+  }, [treasuryAddress]);
 
-  const { data: isMemberRaw, refetch: refetchMember } = useReadContract({
-    address: treasuryAddress,
-    abi: treasuryAbi,
-    functionName: "isMember",
-    args: [(address || "0x0000000000000000000000000000000000000000") as `0x${string}`],
-  });
+  const refetchMember = useCallback(async () => {
+    if (!address) return;
+    try {
+      const data = await publicClient.readContract({
+        address: treasuryAddress,
+        abi: treasuryAbi,
+        functionName: "isMember",
+        args: [address],
+      });
+      setIsMemberRaw(data as boolean);
+    } catch (e) {}
+  }, [treasuryAddress, address]);
 
-  const { data: spendingPolicyRaw, refetch: refetchPolicy } = useReadContract({
-    address: treasuryAddress,
-    abi: treasuryAbi,
-    functionName: "spendingPolicies",
-    args: [(address || "0x0000000000000000000000000000000000000000") as `0x${string}`],
-  });
+  const refetchPolicy = useCallback(async () => {
+    if (!address) return;
+    try {
+      const data = await publicClient.readContract({
+        address: treasuryAddress,
+        abi: treasuryAbi,
+        functionName: "spendingPolicies",
+        args: [address],
+      });
+      setSpendingPolicyRaw(data);
+    } catch (e) {}
+  }, [treasuryAddress, address]);
+
+
+
+  // Unified contract writer using Circle Smart Wallet SDK
+  const writeContract = useCallback(async (
+    contractAddress: string,
+    abi: any,
+    functionName: string,
+    args: any[],
+  ): Promise<`0x${string}`> => {
+    const calldata = encodeFunctionData({ abi, functionName: functionName as any, args });
+    const txHash = await executeContractCall({
+      contractAddress,
+      abiFunctionSignature: "execute(bytes)",
+      abiParameters: [{ type: "callData", value: calldata }],
+      amount: "0",
+    });
+    return (txHash || "0x") as `0x${string}`;
+  }, [executeContractCall]);
 
   // ── Derived values ────────────────────────────────────────────────────────
 
@@ -455,7 +522,7 @@ export default function TreasuryDashboard() {
     fetchDepositHistory();
   }, [fetchDepositHistory]);
 
-  const refreshAll = () => {
+  const refreshAll = useCallback(() => {
     refetchBalance();
     refetchMembers();
     refetchNextId();
@@ -463,7 +530,30 @@ export default function TreasuryDashboard() {
     refetchPolicy();
     fetchProposals();
     fetchDepositHistory();
-  };
+  }, [refetchBalance, refetchMembers, refetchNextId, refetchMember, refetchPolicy, fetchProposals, fetchDepositHistory]);
+
+  // Initial load
+  useEffect(() => {
+    if (mounted) {
+      refreshAll();
+      publicClient.readContract({
+        address: treasuryAddress,
+        abi: treasuryAbi,
+        functionName: "admin",
+      }).then(data => setAdminAddress(data as string)).catch(() => {});
+    }
+  }, [mounted, treasuryAddress, refreshAll]);
+
+  // Refetch when address changes
+  useEffect(() => {
+    if (address) {
+      refetchMember();
+      refetchPolicy();
+    } else {
+      setIsMemberRaw(false);
+      setSpendingPolicyRaw(null);
+    }
+  }, [address, refetchMember, refetchPolicy]);
 
   // ── Form state ────────────────────────────────────────────────────────────
 
@@ -492,24 +582,24 @@ export default function TreasuryDashboard() {
       const amountRaw = parseUnits(depositAmount, 6);
 
       // Step 1: approve
-      const approveTx = await writeContractAsync({
-        address: USDC_ADDRESS,
-        abi: erc20ApproveAbi,
-        functionName: "approve",
-        args: [treasuryAddress, amountRaw],
-      });
+      const approveTx = await writeContract(
+        USDC_ADDRESS,
+        erc20ApproveAbi,
+        "approve",
+        [treasuryAddress, amountRaw]
+      );
       setTxPending("Confirming approval…");
-      await waitForReceipt(publicClient!, approveTx);
+      await waitForReceipt(publicClient, approveTx);
 
       // Step 2: deposit
       setTxPending("Depositing USDC…");
-      const depositTx = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "deposit",
-        args: [amountRaw],
-      });
-      await waitForReceipt(publicClient!, depositTx);
+      const depositTx = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "deposit",
+        [amountRaw]
+      );
+      await waitForReceipt(publicClient, depositTx);
 
       confetti({ particleCount: 60, spread: 45 });
       setDepositAmount("");
@@ -525,13 +615,13 @@ export default function TreasuryDashboard() {
     e.preventDefault();
     setTxPending("Sending direct spend…");
     try {
-      const hash = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "directSpend",
-        args: [directRecipient as `0x${string}`, parseUnits(directAmount, 6)],
-      });
-      await waitForReceipt(publicClient!, hash);
+      const hash = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "directSpend",
+        [directRecipient as `0x${string}`, parseUnits(directAmount, 6)]
+      );
+      await waitForReceipt(publicClient, hash);
       setDirectAmount("");
       setDirectRecipient("");
       refreshAll();
@@ -546,13 +636,13 @@ export default function TreasuryDashboard() {
     e.preventDefault();
     setTxPending("Submitting proposal…");
     try {
-      const hash = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "proposeSpend",
-        args: [propRecipient as `0x${string}`, parseUnits(propAmount, 6), propDesc],
-      });
-      await waitForReceipt(publicClient!, hash);
+      const hash = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "proposeSpend",
+        [propRecipient as `0x${string}`, parseUnits(propAmount, 6), propDesc]
+      );
+      await waitForReceipt(publicClient, hash);
       setPropRecipient(""); setPropAmount(""); setPropDesc("");
       await refetchNextId();
       setTimeout(fetchProposals, 1000);
@@ -567,13 +657,13 @@ export default function TreasuryDashboard() {
     e.preventDefault();
     setTxPending("Adding member…");
     try {
-      const hash = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "addMember",
-        args: [newMemberAddr as `0x${string}`],
-      });
-      await waitForReceipt(publicClient!, hash);
+      const hash = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "addMember",
+        [newMemberAddr as `0x${string}`]
+      );
+      await waitForReceipt(publicClient, hash);
       setNewMemberAddr("");
       refreshAll();
     } catch (err: any) {
@@ -587,13 +677,13 @@ export default function TreasuryDashboard() {
     e.preventDefault();
     setTxPending("Removing member…");
     try {
-      const hash = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "removeMember",
-        args: [removeMemberAddr as `0x${string}`],
-      });
-      await waitForReceipt(publicClient!, hash);
+      const hash = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "removeMember",
+        [removeMemberAddr as `0x${string}`]
+      );
+      await waitForReceipt(publicClient, hash);
       setRemoveMemberAddr("");
       refreshAll();
     } catch (err: any) {
@@ -607,13 +697,13 @@ export default function TreasuryDashboard() {
     e.preventDefault();
     setTxPending("Setting spending policy…");
     try {
-      const hash = await writeContractAsync({
-        address: treasuryAddress,
-        abi: treasuryAbi,
-        functionName: "setSpendingPolicy",
-        args: [limitMemberAddr as `0x${string}`, parseUnits(limitAmount, 6)],
-      });
-      await waitForReceipt(publicClient!, hash);
+      const hash = await writeContract(
+        treasuryAddress,
+        treasuryAbi,
+        "setSpendingPolicy",
+        [limitMemberAddr as `0x${string}`, parseUnits(limitAmount, 6)]
+      );
+      await waitForReceipt(publicClient, hash);
       setLimitMemberAddr(""); setLimitAmount("");
       refreshAll();
     } catch (err: any) {
@@ -1006,6 +1096,7 @@ export default function TreasuryDashboard() {
                     membersCount={membersCount}
                     onRefresh={refreshAll}
                     treasuryAddress={treasuryAddress}
+                    writeContract={writeContract}
                   />
                 ))}
               </div>

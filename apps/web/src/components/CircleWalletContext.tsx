@@ -37,28 +37,35 @@ interface CircleWalletContextValue {
   userToken: string | null;
   encryptionKey: string | null;
   userId: string | null;
+  email: string | null;
   errorMessage: string | null;
 
   /** Call this to trigger the Circle PIN-setup challenge (opens modal) */
   setupWallet: () => Promise<void>;
 
-  /** Prepare + execute a contract call via Circle; returns when challenge done */
+  /** Prepare + execute a contract call via Circle; returns the transaction hash */
   executeContractCall: (params: {
     contractAddress: string;
     abiFunctionSignature: string;
     abiParameters: { type: string; value: string }[];
     amount?: string;
-  }) => Promise<void>;
+  }) => Promise<string>;
 
   /** Prepare + execute a USDC transfer to an external address */
   transferOut: (params: {
     destinationAddress: string;
-    amount: string;       // in base units (6 decimals), e.g. "1000000"
+    amount: string;       // in human-readable decimal units, e.g. "5.00"
     tokenId?: string;     // Circle USDC token ID for the chain
   }) => Promise<void>;
 
   /** Refresh wallet info from Circle */
   refreshWallet: () => Promise<void>;
+
+  /** Log in or sign up using an email address */
+  loginWithEmail: (email: string) => Promise<void>;
+
+  /** Log out and clear the saved session */
+  logout: () => void;
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -101,8 +108,16 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
   const [userToken,     setUserToken]     = useState<string | null>(null);
   const [encryptionKey, setEncryptionKey] = useState<string | null>(null);
   const [userId,        setUserId]        = useState<string | null>(null);
+  const [email,         setEmail]         = useState<string | null>(null);
   const [errorMessage,  setErrorMessage]  = useState<string | null>(null);
   const sdkRef = useRef<any>(null);
+  // ── Prevent React StrictMode double-invocation of the auto-login effect ──
+  const initializedRef = useRef(false);
+  // ── Track current status via ref so callbacks see fresh value w/o deps ──
+  const statusRef = useRef<WalletStatus>("idle");
+
+  // ── Keep statusRef in sync with state ───────────────────────────────────
+  statusRef.current = status;
 
   // ── Load Circle W3S Web SDK lazily (client-only) ─────────────────────────
   const loadSdk = useCallback(async () => {
@@ -116,7 +131,7 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
   }, []);
 
   // ── Execute a Circle challenge (PIN popup) ────────────────────────────────
-  const executeChallenge = useCallback(async (challengeId: string): Promise<void> => {
+  const executeChallenge = useCallback(async (challengeId: string): Promise<any> => {
     const sdk = await loadSdk();
     if (!userToken || !encryptionKey) throw new Error("Not authenticated with Circle");
     sdk.setAuthentication({ userToken, encryptionKey });
@@ -126,6 +141,7 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
         if (error) {
           reject(new Error(`${error.code ?? "?"}: ${error.message ?? "Challenge failed"}`));
         } else {
+          // result may contain { result: { type, transactionHash } }
           resolve(result);
         }
       });
@@ -179,12 +195,78 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
     }
   }, [fetchWallet]);
 
+  // ── Email Login / Registration ──────────────────────────────────────────
+  const loginWithEmail = useCallback(async (email: string) => {
+    // Guard: don't re-authenticate if already in progress or authenticated
+    if (statusRef.current !== "idle") return;
+    setStatus("loading");
+    setErrorMessage(null);
+    try {
+      const trimmedEmail = email.toLowerCase().trim();
+      // Generate deterministic 32-char hex string from the email hash (<50 characters for Circle API)
+      const msgBuffer = new TextEncoder().encode(trimmedEmail);
+      const hashBuffer = await window.crypto.subtle.digest("SHA-256", msgBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const fullHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      const uid = `usr_${fullHash.substring(0, 32)}`;
+
+      setUserId(uid);
+      setEmail(trimmedEmail);
+      localStorage.setItem("arc_circle_email", trimmedEmail);
+      localStorage.setItem("arc_circle_user_id", uid);
+
+      // Get Circle session credentials
+      const authRes = await fetch("/api/circle/user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: uid }),
+      });
+      const authData = await authRes.json();
+      if (!authRes.ok) throw new Error(authData.error || "Failed to authenticate with Circle");
+
+      const { userToken: token, encryptionKey: key } = authData;
+      setUserToken(token);
+      setEncryptionKey(key);
+
+      // Check if the user already has a wallet
+      const existingWallet = await fetchWallet(token);
+      if (existingWallet && existingWallet.state === "LIVE") {
+        setStatus("ready");
+      } else {
+        setStatus("setup_required");
+      }
+    } catch (err: any) {
+      console.error("[CircleWallet] Email login error:", err);
+      setErrorMessage(err.message || "Email login failed");
+      setStatus("error");
+    }
+  }, [fetchWallet]);
+
+  const logout = useCallback(() => {
+    localStorage.removeItem("arc_circle_email");
+    localStorage.removeItem("arc_circle_user_id");
+    setUserId(null);
+    setEmail(null);
+    setUserToken(null);
+    setEncryptionKey(null);
+    setWallet(null);
+    setStatus("idle");
+    setErrorMessage(null);
+  }, []);
+
   useEffect(() => {
-    // Only auto-bootstrap when running in Telegram or when the user is on a page that opted in.
-    // We check for the Telegram WebApp object as the trigger.
+    // Guard against React StrictMode double-invocation
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
     const isTelegram = typeof window !== "undefined" && !!(window as any).Telegram?.WebApp?.initData;
     if (isTelegram) {
       bootstrap();
+    } else {
+      const savedEmail = localStorage.getItem("arc_circle_email");
+      if (savedEmail) {
+        loginWithEmail(savedEmail);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -203,8 +285,20 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
       if (!res.ok) throw new Error(data.error || "Failed to start wallet setup");
 
       await executeChallenge(data.challengeId);
-      // Wallet is now created — fetch the address
-      await fetchWallet(userToken);
+
+      // Circle may take a moment to activate the wallet (PENDING_BLOCKCHAIN → LIVE).
+      // Poll up to 12 times (1s apart) until we get a LIVE wallet.
+      let liveWallet = null;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const w = await fetchWallet(userToken);
+        if (w?.state === "LIVE") { liveWallet = w; break; }
+      }
+
+      if (!liveWallet) {
+        // Wallet created but not yet LIVE — still mark ready so UI unblocks
+        await fetchWallet(userToken);
+      }
       setStatus("ready");
     } catch (err: any) {
       console.error("[CircleWallet] Setup error:", err);
@@ -243,7 +337,16 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to prepare contract execution");
 
-    await executeChallenge(data.challengeId);
+    const sdkResult = await executeChallenge(data.challengeId);
+
+    // Circle SDK result may include the transaction hash
+    const txHash: string =
+      sdkResult?.result?.transactionHash ??
+      sdkResult?.transactionHash ??
+      sdkResult?.data?.transactionHash ??
+      "";
+
+    return txHash;
   }, [wallet, userToken, executeChallenge]);
 
   // ── Transfer USDC out to an external wallet ──────────────────────────────
@@ -284,11 +387,14 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
         userToken,
         encryptionKey,
         userId,
+        email,
         errorMessage,
         setupWallet,
         executeContractCall,
         transferOut,
         refreshWallet,
+        loginWithEmail,
+        logout,
       }}
     >
       {children}

@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 
 const CIRCLE_API_KEY  = process.env.CIRCLE_API_KEY?.trim() || "";
-const CIRCLE_API_BASE = CIRCLE_API_KEY.startsWith("TEST_API_KEY")
-  ? "https://api-sandbox.circle.com/v1/w3s"
-  : "https://api.circle.com/v1/w3s";
+const CIRCLE_API_BASE = "https://api.circle.com/v1/w3s";
 
 // POST /api/circle/wallet
 // Body: { userToken: string }
