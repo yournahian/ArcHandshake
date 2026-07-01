@@ -339,14 +339,33 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
 
     const sdkResult = await executeChallenge(data.challengeId);
 
-    // Circle SDK result may include the transaction hash
-    const txHash: string =
+    // Poll for the on-chain transaction hash from Circle status
+    if (data.txId) {
+      for (let i = 0; i < 15; i++) {
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          const txRes = await fetch(`/api/circle/transactions/${data.txId}?userToken=${encodeURIComponent(userToken)}`);
+          if (txRes.ok) {
+            const txData = await txRes.json();
+            const txHash = txData?.transaction?.txHash;
+            if (txHash && txHash !== "0x" && txHash.length > 10) {
+              return txHash as string;
+            }
+          }
+        } catch (e) {
+          console.warn("Error polling transaction hash:", e);
+        }
+      }
+    }
+
+    // Fallback to checking challenge payload result
+    const fallbackHash: string =
       sdkResult?.result?.transactionHash ??
       sdkResult?.transactionHash ??
       sdkResult?.data?.transactionHash ??
       "";
 
-    return txHash;
+    return fallbackHash;
   }, [wallet, userToken, executeChallenge]);
 
   // ── Transfer USDC out to an external wallet ──────────────────────────────

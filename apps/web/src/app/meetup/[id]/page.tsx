@@ -25,7 +25,15 @@ export default function MeetupDetail() {
   const [isTxPending, setIsTxPending] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
-  const [secretConfirmationCode, setSecretConfirmationCode] = useState("laptop-received");
+  const [secretConfirmationCode, setSecretConfirmationCode] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem(`arc_physical_code_${id}`);
+        if (cached) return cached;
+      } catch (e) {}
+    }
+    return "laptop-received";
+  });
   const [submission, setSubmission] = useState<{ fileUrl: string; fileName: string; status: string; result: string } | null>(null);
 
   // Custom toast notification state and alert helper to replace native browser popups
@@ -97,6 +105,7 @@ export default function MeetupDetail() {
   }, [jobRaw, id, router]);
 
   const fetchSubmission = async () => {
+    let codeFound = false;
     const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (hasSupabase) {
       try {
@@ -116,22 +125,24 @@ export default function MeetupDetail() {
           });
           if (data.file_name === "meetup_code" && data.file_url) {
             setSecretConfirmationCode(data.file_url);
+            codeFound = true;
           }
-          return;
         }
       } catch (err) {
         console.error("Failed to fetch submission from Supabase:", err);
       }
     }
 
-    // LocalStorage Fallback for code
-    try {
-      const localCode = localStorage.getItem(`arc_physical_code_${jobId}`);
-      if (localCode) {
-        setSecretConfirmationCode(localCode);
+    // LocalStorage Fallback for code if not successfully fetched from database
+    if (!codeFound) {
+      try {
+        const localCode = localStorage.getItem(`arc_physical_code_${jobId}`);
+        if (localCode) {
+          setSecretConfirmationCode(localCode);
+        }
+      } catch (err) {
+        console.warn("Failed to read local physical code cache:", err);
       }
-    } catch (err) {
-      console.warn("Failed to read local physical code cache:", err);
     }
   };
 
@@ -443,8 +454,11 @@ export default function MeetupDetail() {
               <ShieldCheck size={38} />
             </div>
             <h2 style={{ fontSize: "1.4rem", fontWeight: 700 }}>Meetup Successfully Settle!</h2>
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", lineHeight: 1.4 }}>
-              Funds have been transferred to the seller on the Arc network. You are safe to part ways.
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.95rem", lineHeight: 1.4, textAlign: "center" }}>
+              {address && provider && address.toLowerCase() === provider.toLowerCase()
+                ? "Funds have been transferred to your wallet on the Arc network. You are safe to part ways."
+                : "Funds have been transferred to the seller on the Arc network. You are safe to part ways."
+              }
             </p>
             
             {/* Transaction Hash */}

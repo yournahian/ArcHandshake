@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { formatUnits, parseUnits, keccak256, toHex, encodeFunctionData } from "viem";
 import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
@@ -40,9 +40,12 @@ export default function EscrowDetail() {
 
   // Buyer: fund state
   const [isFunding, setIsFunding] = useState(false);
+  const [lastSeenBudget, setLastSeenBudget] = useState<string | null>(null);
 
   // Custom toast notification state and alert helper to replace native browser popups
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const alert = useCallback((message: string) => {
     const lower = message.toLowerCase();
     const isError = lower.includes("failed") || 
@@ -52,10 +55,26 @@ export default function EscrowDetail() {
                     lower.includes("incorrect") || 
                     lower.includes("wrong") || 
                     lower.includes("not set");
+    
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+
     setToast({ message: message.replace(/\n/g, " "), type: isError ? "error" : "success" });
-    setTimeout(() => {
+    
+    toastTimeoutRef.current = setTimeout(() => {
       setToast(null);
+      toastTimeoutRef.current = null;
     }, 5000);
+  }, []);
+
+  // Cleanup toast timer on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Read Job details from Arc Testnet contract manually using publicClient
@@ -63,10 +82,6 @@ export default function EscrowDetail() {
   const [isPending, setIsPending] = useState(true);
 
   const refetch = useCallback(async () => {
-    // Only show loading spinner on initial load when jobRaw is not yet fetched
-    if (!jobRaw) {
-      setIsPending(true);
-    }
     try {
       const data = await publicClient.readContract({
         address: DEPLOYED_ESCROW_ADDRESS,
@@ -80,7 +95,7 @@ export default function EscrowDetail() {
     } finally {
       setIsPending(false);
     }
-  }, [jobId, jobRaw]);
+  }, [jobId]);
 
   useEffect(() => {
     refetch();
@@ -386,52 +401,99 @@ export default function EscrowDetail() {
   const isProvider = address?.toLowerCase() === provider.toLowerCase();
   const isEvaluator = address?.toLowerCase() === evaluator.toLowerCase();
 
-  const counterOfferAmount = (localCounterOffer && localCounterOffer !== "rejected")
-    ? localCounterOffer
-    : (submission && submission.status === "Negotiation" && submission.result.startsWith("Counter-offer: "))
-    ? submission.result.replace("Counter-offer: ", "").replace(" USDC", "")
-    : (submission && submission.status === "Negotiation" && submission.result.includes("rejected"))
-    ? "rejected"
+  // 1. Determine the negotiation state machine
+  const dbResult = submission && submission.status === "Negotiation" ? submission.result : null;
+  const onChainBudget = jobRaw ? formatUnits(jobRaw[5], 6) : "0";
+  const onChainStatus = jobRaw ? jobRaw[7] : 0;
+
+  let negotiationState: "none" | "proposed" | "seller_declined" | "buyer_rejected" | "accepted" = "none";
+  let negotiatedAmount = "";
+
+  if (dbResult === "rejected" || dbResult === "declined" || localCounterOffer === "seller_declined" || localCounterOffer === "rejected") {
+    negotiationState = "seller_declined";
+  } else if (dbResult === "Buyer rejected proposed budget." || localCounterOffer === "buyer_rejected") {
+    negotiationState = "buyer_rejected";
+  } else if (localCounterOffer === "accepted") {
+    negotiationState = "accepted";
+  } else {
+    // Check if there is an active proposed offer
+    const activeOffer = (localCounterOffer && !["rejected", "buyer_rejected", "seller_declined", "accepted"].includes(localCounterOffer))
+      ? localCounterOffer
+      : (submission && submission.status === "Negotiation" && submission.result.startsWith("Counter-offer: "))
+      ? submission.result.replace("Counter-offer: ", "").replace(" USDC", "")
+      : null;
+
+    if (activeOffer) {
+      if (parseFloat(onChainBudget) === parseFloat(activeOffer)) {
+        negotiationState = "accepted";
+        try {
+          localStorage.setItem(`arc_negotiation_${jobId}`, "accepted");
+        } catch (e) {}
+      } else {
+        negotiationState = "proposed";
+        negotiatedAmount = activeOffer;
+      }
+    }
+  }
+
+  // Backward compatibility variables for existing code structure
+  const counterOfferAmount = negotiationState === "seller_declined" 
+    ? "rejected" 
+    : negotiationState === "buyer_rejected" 
+    ? "buyer_rejected" 
+    : negotiationState === "proposed" 
+    ? negotiatedAmount 
     : localCounterOffer;
 
-  const isNegotiationActive = !!(
-    counterOfferAmount &&
-    counterOfferAmount !== "rejected" &&
-    parseFloat(budget) !== parseFloat(counterOfferAmount)
-  );
+  const isNegotiationActive = negotiationState === "proposed";
 
-  // Clear local counter-offer if the on-chain budget has been updated to match it,
-  // or if the escrow status is Funded or above, or if it was rejected/declined.
+  // Clear local counter-offer if on-chain status is Funded or above,
+  // or if the database negotiation has been completely cleared.
   useEffect(() => {
-    // If the database has no Negotiation record, then any local counter-offer is no longer active
-    const isDbNegotiating = submission && submission.status === "Negotiation";
-    if (!isDbNegotiating && !isCounterOffering && localCounterOffer && localCounterOffer !== "rejected") {
-      try {
-        localStorage.removeItem(`arc_negotiation_${jobId}`);
-      } catch (err) {}
-      setLocalCounterOffer(null);
-      return;
-    }
-
-    if (counterOfferAmount === "rejected" && localCounterOffer !== "rejected") {
-      try {
-        localStorage.setItem(`arc_negotiation_${jobId}`, "rejected");
-      } catch (err) {}
-      setLocalCounterOffer("rejected");
-      return;
-    }
-
     if (!jobRaw) return;
-    const onChainBudget = formatUnits(jobRaw[5], 6);
     const onChainStatus = jobRaw[7];
 
-    if (onChainStatus >= 1 || (localCounterOffer && localCounterOffer !== "rejected" && parseFloat(onChainBudget) === parseFloat(localCounterOffer))) {
+    if (onChainStatus >= 1) {
       try {
         localStorage.removeItem(`arc_negotiation_${jobId}`);
+        setLocalCounterOffer(null);
       } catch (err) {}
-      setLocalCounterOffer(null);
+      return;
     }
-  }, [jobRaw, localCounterOffer, jobId, counterOfferAmount, submission, isCounterOffering]);
+
+    const isDbNegotiating = submission && submission.status === "Negotiation";
+    const dbResultStr = submission?.result || "";
+
+    // 1. If there is an active counter-offer in the database, clear any stale local rejected/accepted cache
+    if (isDbNegotiating && dbResultStr.startsWith("Counter-offer:") && localCounterOffer && ["seller_declined", "buyer_rejected", "accepted", "rejected"].includes(localCounterOffer)) {
+      try {
+        localStorage.removeItem(`arc_negotiation_${jobId}`);
+        setLocalCounterOffer(null);
+      } catch (err) {}
+      return;
+    }
+
+    // 2. If negotiation is no longer active in the database (status !== "Negotiation"), clear everything
+    if (!isDbNegotiating && !isCounterOffering && localCounterOffer) {
+      try {
+        localStorage.removeItem(`arc_negotiation_${jobId}`);
+        setLocalCounterOffer(null);
+      } catch (err) {}
+    }
+  }, [jobRaw, localCounterOffer, jobId, submission, isCounterOffering]);
+
+  // Notify buyer when the seller sets/updates the budget on-chain in real-time
+  useEffect(() => {
+    if (jobRaw) {
+      const currentBudget = formatUnits(jobRaw[5], 6);
+      if (lastSeenBudget !== null && currentBudget !== lastSeenBudget && parseFloat(currentBudget) > 0) {
+        if (isClient) {
+          alert(`🔔 Price Update: The seller has set/updated the budget to ${currentBudget} USDC!`);
+        }
+      }
+      setLastSeenBudget(currentBudget);
+    }
+  }, [jobRaw, lastSeenBudget, isClient, alert]);
 
   if (isPending || !jobRaw) {
     return (
@@ -492,14 +554,16 @@ export default function EscrowDetail() {
       const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       if (hasSupabase) {
         try {
-          await supabase.from("escrow_submissions").delete().eq("job_id", Number(jobId));
-          // Overwrite the database record with empty details to clear negotiation status if delete is restricted
+          const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+          if (!isPhysical) {
+            await supabase.from("escrow_submissions").delete().eq("job_id", Number(jobId));
+          }
           await supabase.from("escrow_submissions").upsert({
             job_id: Number(jobId),
             status: "Open",
             result: "",
-            file_url: "",
-            file_name: "",
+            file_url: isPhysical ? (submission?.fileUrl || "") : "",
+            file_name: isPhysical ? "meetup_code" : "",
             source: "web"
           });
         } catch (dbErr) {}
@@ -511,6 +575,7 @@ export default function EscrowDetail() {
 
       refetch();
       await fetchSubmission();
+      alert(`Budget successfully updated to ${targetAmount} USDC!`);
     } catch (err: any) {
       alert(`Set budget failed: ${err.message || err}`);
     } finally {
@@ -521,30 +586,35 @@ export default function EscrowDetail() {
   // BUYER: Propose counter offer
   const handleProposeCounterOffer = async () => {
     if (!counterOfferInput || parseFloat(counterOfferInput) <= 0) return;
+    const proposedVal = counterOfferInput;
+    setCounterOfferInput("");
     setIsCounterOffering(true);
+
+    // Optimistic UI update: instantly update local state to transition view
+    try {
+      localStorage.setItem(`arc_negotiation_${jobId}`, proposedVal);
+      setLocalCounterOffer(proposedVal);
+    } catch (err) {}
+
     try {
       const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       if (hasSupabase) {
-        await supabase.from("escrow_submissions").upsert({
+        const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+        const { error } = await supabase.from("escrow_submissions").upsert({
           job_id: Number(jobId),
-          file_url: "",
-          file_name: "",
+          file_url: isPhysical ? (submission?.fileUrl || "") : "",
+          file_name: isPhysical ? "meetup_code" : "",
           status: "Negotiation",
-          result: `Counter-offer: ${counterOfferInput} USDC`,
+          result: `Counter-offer: ${proposedVal} USDC`,
           source: "web"
         });
+        if (error) {
+          console.error("Supabase upsert negotiation error:", error);
+        }
       }
-
-      try {
-        localStorage.setItem(`arc_negotiation_${jobId}`, counterOfferInput);
-        setLocalCounterOffer(counterOfferInput);
-      } catch (err) {}
-
-      alert(`Counter-offer of ${counterOfferInput} USDC proposed successfully!`);
-      setCounterOfferInput("");
       await fetchSubmission();
     } catch (err: any) {
-      alert(`Failed to propose counter-offer: ${err.message || err}`);
+      console.error("Propose counter-offer backend sync error:", err);
     } finally {
       setIsCounterOffering(false);
     }
@@ -555,10 +625,11 @@ export default function EscrowDetail() {
     try {
       const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       if (hasSupabase) {
+        const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
         await supabase.from("escrow_submissions").upsert({
           job_id: Number(jobId),
-          file_url: "",
-          file_name: "",
+          file_url: isPhysical ? (submission?.fileUrl || "") : "",
+          file_name: isPhysical ? "meetup_code" : "",
           status: "Negotiation",
           result: "Buyer rejected proposed budget.",
           source: "web"
@@ -566,8 +637,8 @@ export default function EscrowDetail() {
       }
 
       try {
-        localStorage.setItem(`arc_negotiation_${jobId}`, "rejected");
-        setLocalCounterOffer("rejected");
+        localStorage.setItem(`arc_negotiation_${jobId}`, "buyer_rejected");
+        setLocalCounterOffer("buyer_rejected");
       } catch (err) {}
 
       alert("Budget quote rejected.");
@@ -1100,7 +1171,7 @@ export default function EscrowDetail() {
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button
-                  onClick={() => handleSetBudget(counterOfferAmount)}
+                  onClick={() => handleSetBudget(counterOfferAmount ?? undefined)}
                   className="btn-primary"
                   disabled={isSettingBudget}
                   style={{ background: "linear-gradient(135deg, #10B981 0%, #059669 100%)", borderColor: "#10B981", justifyContent: "center" }}
@@ -1112,19 +1183,20 @@ export default function EscrowDetail() {
                     const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
                     if (hasSupabase) {
                       try {
+                        const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
                         await supabase.from("escrow_submissions").upsert({
                           job_id: Number(jobId),
                           status: "Negotiation",
                           result: "rejected",
-                          file_url: "",
-                          file_name: "",
+                          file_url: isPhysical ? (submission?.fileUrl || "") : "",
+                          file_name: isPhysical ? "meetup_code" : "",
                           source: "web"
                         });
                       } catch (err) {}
                     }
                     try {
-                      localStorage.setItem(`arc_negotiation_${jobId}`, "rejected");
-                      setLocalCounterOffer("rejected");
+                      localStorage.setItem(`arc_negotiation_${jobId}`, "seller_declined");
+                      setLocalCounterOffer("seller_declined");
                     } catch (err) {}
                     await fetchSubmission();
                   }}
@@ -1152,9 +1224,15 @@ export default function EscrowDetail() {
                 )}
               </div>
               
-              {counterOfferAmount === "rejected" && (
+              {negotiationState === "buyer_rejected" && (
                 <p style={{ color: "var(--danger)", fontSize: "0.85rem", fontWeight: 500, margin: 0 }}>
-                  ⚠️ The buyer has rejected your previous budget quote. Propose a renegotiated price below:
+                  ⚠️ The buyer has rejected your proposed budget quote. Propose a renegotiated price below:
+                </p>
+              )}
+
+              {negotiationState === "seller_declined" && (
+                <p style={{ color: "var(--danger)", fontSize: "0.85rem", fontWeight: 500, margin: 0 }}>
+                  ⚠️ You declined the buyer's counter-offer. Propose a renegotiated price below:
                 </p>
               )}
 
@@ -1199,7 +1277,15 @@ export default function EscrowDetail() {
                   const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
                   if (hasSupabase) {
                     try {
-                      await supabase.from("escrow_submissions").delete().eq("job_id", Number(jobId));
+                      const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+                      await supabase.from("escrow_submissions").upsert({
+                        job_id: Number(jobId),
+                        status: "Open",
+                        result: "",
+                        file_url: isPhysical ? (submission?.fileUrl || "") : "",
+                        file_name: isPhysical ? "meetup_code" : "",
+                        source: "web"
+                      });
                     } catch (err) {}
                   }
                   try {
@@ -1229,13 +1315,37 @@ export default function EscrowDetail() {
           {isClient && status === 0 && budgetRaw > BigInt(0) && !isNegotiationActive && (
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               
-              {counterOfferAmount === "rejected" && (
+              {negotiationState === "accepted" && (
+                <div style={{ background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)", borderRadius: "12px", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px" }}>
+                  <ShieldCheck size={20} style={{ color: "var(--success)" }} />
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--success)", display: "block" }}>Counter-Offer Accepted!</span>
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: "2px", display: "block" }}>
+                      The seller has accepted your proposed counter-offer of <b>{budget} USDC</b>. You can now approve and deposit the funds below to start the job.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {negotiationState === "seller_declined" && (
                 <div style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: "12px", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px" }}>
                   <AlertCircle size={20} style={{ color: "var(--danger)" }} />
                   <div>
                     <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--danger)", display: "block" }}>Counter-Offer Declined</span>
                     <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: "2px", display: "block" }}>
                       The seller has declined your previous counter-offer. You can deposit at the seller's price or propose a new counter-offer below.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {negotiationState === "buyer_rejected" && (
+                <div style={{ background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", borderRadius: "12px", padding: "16px 20px", display: "flex", alignItems: "center", gap: "12px" }}>
+                  <AlertCircle size={20} style={{ color: "var(--danger)" }} />
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--danger)", display: "block" }}>Price Quote Rejected</span>
+                    <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem", marginTop: "2px", display: "block" }}>
+                      You have rejected the seller's budget quote. Propose a counter-offer below to renegotiate the price.
                     </span>
                   </div>
                 </div>

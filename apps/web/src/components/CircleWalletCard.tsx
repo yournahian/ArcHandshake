@@ -12,7 +12,9 @@ import { useCircleWallet } from "./CircleWalletContext";
 import {
   Wallet, Copy, CheckCircle, Loader2, ArrowUpRight,
   RefreshCw, ExternalLink, AlertCircle, ShieldCheck,
+  ArrowDownLeft,
 } from "lucide-react";
+import { CctpBridgeCard } from "./CctpBridgeCard";
 
 export function CircleWalletCard() {
   const {
@@ -21,8 +23,15 @@ export function CircleWalletCard() {
     loginWithEmail, logout,
   } = useCircleWallet();
 
+  // Automatically trigger PIN setup modal when user login succeeds but no wallet exists yet
+  useEffect(() => {
+    if (status === "setup_required") {
+      setupWallet();
+    }
+  }, [status, setupWallet]);
+
   const [copied, setCopied] = useState(false);
-  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [activeTab, setActiveTab] = useState<"none" | "withdraw" | "bridge">("none");
   const [destAddress, setDestAddress] = useState("");
   const [amount, setAmount] = useState("");
   const [txStatus, setTxStatus] = useState<"idle" | "pending" | "done" | "error">("idle");
@@ -30,29 +39,7 @@ export function CircleWalletCard() {
   const [emailInput, setEmailInput] = useState("");
   const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
   const [usdcTokenId, setUsdcTokenId] = useState<string | undefined>(undefined);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [loadingTx, setLoadingTx] = useState(false);
-
-  // Fetch transactions history
-  const fetchTransactions = useCallback(async () => {
-    if (!wallet?.id || !userToken) return;
-    setLoadingTx(true);
-    try {
-      const res = await fetch(`/api/circle/transactions?walletId=${wallet.id}&userToken=${encodeURIComponent(userToken)}`);
-      const data = await res.json();
-      if (res.ok) {
-        setTransactions(data.transactions || []);
-      }
-    } catch (e) {
-      console.error("Error fetching transactions:", e);
-    } finally {
-      setLoadingTx(false);
-    }
-  }, [wallet?.id, userToken]);
-
-  useEffect(() => {
-    fetchTransactions();
-  }, [fetchTransactions]);
+  // Removed transactions state and history logic (moved to Profile page)
 
   // Fetch USDC token ID from balances to configure token transfer
   useEffect(() => {
@@ -102,9 +89,9 @@ export function CircleWalletCard() {
       setTxStatus("done");
       setAmount("");
       setDestAddress("");
-      // Refresh transactions after 2 seconds to let the chain update
-      setTimeout(fetchTransactions, 2000);
-      setTimeout(() => { setTxStatus("idle"); setShowWithdraw(false); }, 3000);
+      // Refresh wallet after 2 seconds to let the chain update balance
+      setTimeout(refreshWallet, 2000);
+      setTimeout(() => { setTxStatus("idle"); setActiveTab("none"); }, 3000);
     } catch (err: any) {
       setTxStatus("error");
       setTxError(err.message || "Transfer failed");
@@ -188,7 +175,7 @@ export function CircleWalletCard() {
       <div className="glass-card" style={{ padding: "24px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
           <Wallet size={20} style={{ color: "#818cf8" }} />
-          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Circle Wallet</h3>
+          <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Circle Smart Wallet</h3>
         </div>
         {errorMessage && (
           <div style={{
@@ -237,6 +224,10 @@ export function CircleWalletCard() {
   // ── Ready ────────────────────────────────────────────────────────────────
   if (!wallet) return null;
 
+  if (activeTab === "bridge") {
+    return <CctpBridgeCard onBack={() => setActiveTab("none")} />;
+  }
+
   const shortAddress = `${wallet.address.slice(0, 8)}…${wallet.address.slice(-6)}`;
 
   return (
@@ -253,7 +244,7 @@ export function CircleWalletCard() {
             <ShieldCheck size={18} style={{ color: "#818cf8" }} />
           </div>
           <div>
-            <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Circle Wallet</h3>
+            <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Circle Smart Wallet</h3>
             <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "2px" }}>
               <span style={{
                 fontSize: "0.7rem", padding: "2px 8px", borderRadius: "20px",
@@ -347,104 +338,38 @@ export function CircleWalletCard() {
         }} />
         Arc Testnet · MPC secured
       </div>
-      {/* Tabs: Overview | Withdraw */}
-      <div style={{ display: "flex", gap: "8px", marginBottom: "4px" }}>
-        <button
-          onClick={() => { setShowWithdraw(false); }}
-          style={{
-            flex: 1, padding: "8px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600,
-            background: !showWithdraw ? "rgba(99,102,241,0.15)" : "transparent",
-            color:      !showWithdraw ? "#818cf8" : "var(--text-muted,#888)",
-          }}
-        >
-          Overview
-        </button>
-        <button
-          onClick={() => { setShowWithdraw(true); }}
-          style={{
-            flex: 1, padding: "8px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600,
-            background: showWithdraw ? "rgba(99,102,241,0.15)" : "transparent",
-            color:      showWithdraw ? "#818cf8" : "var(--text-muted,#888)",
-          }}
-        >
-          Withdraw
-        </button>
-      </div>
-
-      {!showWithdraw ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          <button
-            onClick={() => setShowWithdraw(true)}
-            style={{
-              display: "flex", alignItems: "center", gap: "6px",
-              padding: "10px 16px", borderRadius: "10px",
-              border: "1px solid rgba(99,102,241,0.3)",
-              background: "rgba(99,102,241,0.08)",
-              color: "#818cf8", fontWeight: 600, fontSize: "0.85rem", cursor: "pointer",
-              width: "100%", justifyContent: "center",
-            }}
-          >
-            <ArrowUpRight size={16} /> Withdraw to External Wallet
-          </button>
-
-          {/* Transaction History Section */}
-          <div style={{ marginTop: "6px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
-              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-primary)" }}>Recent Transactions</span>
-              <button 
-                onClick={fetchTransactions} 
-                disabled={loadingTx}
-                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", fontSize: "0.72rem" }}
-              >
-                <RefreshCw size={10} className={loadingTx ? "animate-spin" : ""} style={{ animation: loadingTx ? "spin 1s linear infinite" : "none" }} /> Refresh
-              </button>
-            </div>
-
-            {loadingTx && transactions.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "16px 0", color: "var(--text-muted)", fontSize: "0.78rem" }}>
-                Loading transactions…
-              </div>
-            ) : transactions.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "16px 0", color: "var(--text-muted)", fontSize: "0.78rem", border: "1px dashed rgba(255,255,255,0.05)", borderRadius: "8px" }}>
-                No recent transactions found
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "180px", overflowY: "auto", paddingRight: "4px" }}>
-                {transactions.map((tx: any) => {
-                  const statusColor = tx.state === "COMPLETE" ? "#10b981" : tx.state === "FAILED" ? "#ef4444" : "#f59e0b";
-                  const date = new Date(tx.updateDate || tx.createDate).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-                  const txAmount = tx.amounts?.[0] || tx.amount || "0.00";
-                  
-                  return (
-                    <div 
-                      key={tx.id} 
-                      style={{ 
-                        display: "flex", justifyContent: "space-between", alignItems: "center", 
-                        padding: "8px 10px", background: "rgba(255,255,255,0.02)", 
-                        borderRadius: "8px", border: "1px solid rgba(255,255,255,0.04)",
-                        fontSize: "0.75rem"
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                        <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "4px" }}>
-                          <span>{tx.transactionType === "OUTBOUND" ? "Send USDC" : tx.transactionType === "INBOUND" ? "Receive USDC" : tx.transactionType || "Transfer"}</span>
-                          <span style={{ fontSize: "0.65rem", padding: "1px 4px", borderRadius: "4px", background: "rgba(255,255,255,0.05)", color: statusColor }}>
-                            {tx.state}
-                          </span>
-                        </div>
-                        <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{date}</span>
-                      </div>
-                      <span style={{ fontWeight: 700, color: tx.transactionType === "OUTBOUND" ? "#f43f5e" : "#10b981" }}>
-                        {tx.transactionType === "OUTBOUND" ? "-" : "+"}{parseFloat(txAmount).toFixed(2)} USDC
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+      {/* Tabs: Withdraw | Deposit (Bridge) */}
+      {(() => {
+        const tab = activeTab as "none" | "withdraw" | "bridge";
+        return (
+          <div style={{ display: "flex", gap: "8px", marginBottom: tab === "none" ? "0px" : "12px" }}>
+            <button
+              onClick={() => { setActiveTab(tab === "withdraw" ? "none" : "withdraw"); }}
+              style={{
+                flex: 1, padding: "8px", borderRadius: "8px", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600,
+                background: tab === "withdraw" ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.03)",
+                color:      tab === "withdraw" ? "#818cf8" : "var(--text-muted,#888)",
+                border: "1px solid rgba(255,255,255,0.05)"
+              }}
+            >
+              Withdraw
+            </button>
+            <button
+              onClick={() => { setActiveTab(tab === "bridge" ? "none" : "bridge"); }}
+              style={{
+                flex: 1, padding: "8px", borderRadius: "8px", cursor: "pointer", fontSize: "0.78rem", fontWeight: 600,
+                background: tab === "bridge" ? "rgba(99,102,241,0.15)" : "rgba(255,255,255,0.03)",
+                color:      tab === "bridge" ? "#818cf8" : "var(--text-muted,#888)",
+                border: "1px solid rgba(255,255,255,0.05)"
+              }}
+            >
+              Deposit (Bridge)
+            </button>
           </div>
-        </div>
-      ) : (
+        );
+      })()}
+
+      {activeTab === "withdraw" && (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           <p style={{ margin: 0, fontSize: "0.82rem", color: "var(--text-muted)", fontWeight: 600 }}>
             Withdraw USDC to MetaMask or any address:
@@ -498,7 +423,7 @@ export function CircleWalletCard() {
               ) : "Send"}
             </button>
             <button
-              onClick={() => { setShowWithdraw(false); setTxStatus("idle"); }}
+              onClick={() => { setActiveTab("none"); setTxStatus("idle"); }}
               style={{
                 padding: "10px 16px", borderRadius: "8px",
                 border: "1px solid rgba(255,255,255,0.1)",

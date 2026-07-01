@@ -20,6 +20,13 @@ export function HeaderWallet() {
     setMounted(true);
   }, []);
 
+  // Automatically trigger PIN setup modal when user login succeeds but no wallet exists yet
+  useEffect(() => {
+    if (circleStatus === "setup_required") {
+      setupWallet();
+    }
+  }, [circleStatus, setupWallet]);
+
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailInput || !emailInput.includes("@")) return;
@@ -109,7 +116,7 @@ export function HeaderWallet() {
           className="btn-primary"
           style={{ padding: "8px 16px", fontSize: "0.85rem", minHeight: "36px", display: "flex", alignItems: "center", gap: "6px" }}
         >
-          <span className="hidden sm:inline">Connect Wallet</span>
+          <span className="hidden sm:inline">Sign In / Sign Up</span>
           <Wallet size={16} />
         </button>
       </div>

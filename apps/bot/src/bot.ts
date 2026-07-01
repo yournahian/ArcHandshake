@@ -275,8 +275,8 @@ app.post("/api/submissions", async (req: any, res: any) => {
 
     if (isApproved) {
       const reasonHash = keccak256(toHex("AI_APPROVED"));
-      await updateDbStatus(numericJobId, "Approved", `Verification passed! ${reason}`);
-      await releaseEscrow(BigInt(numericJobId), reasonHash);
+      const txHash = await releaseEscrow(BigInt(numericJobId), reasonHash);
+      await updateDbStatus(numericJobId, "Approved", `Verification passed! ${reason} Tx Hash: ${txHash}`);
     } else {
       const reasonHash = keccak256(toHex("AI_REJECTED"));
       await updateDbStatus(numericJobId, "Rejected", `Verification failed! ${reason}`);
@@ -311,13 +311,16 @@ app.post("/api/escrow/release", async (req: any, res: any) => {
       return res.status(400).json({ error: `Cannot release escrow with current job status: ${status}` });
     }
 
-    // Set buyer_authorized to true in Supabase first
+    const reasonHash = keccak256(toHex("BUYER_MANUAL_APPROVED"));
+    const txHash = await releaseEscrow(BigInt(jobId), reasonHash);
+
+    // Set buyer_authorized to true and save release transaction hash to Supabase
     try {
       await supabase.from("escrow_submissions").upsert({
         job_id: Number(jobId),
         buyer_authorized: true,
         status: "Approved",
-        result: "Escrow payment released manually by buyer.",
+        result: `Escrow payment released manually by buyer. Tx Hash: ${txHash}`,
         file_url: "",
         file_name: "",
         source: "web"
@@ -325,9 +328,6 @@ app.post("/api/escrow/release", async (req: any, res: any) => {
     } catch (dbErr) {
       console.error("Failed to update buyer authorization in Supabase:", dbErr);
     }
-
-    const reasonHash = keccak256(toHex("BUYER_MANUAL_APPROVED"));
-    const txHash = await releaseEscrow(BigInt(jobId), reasonHash);
 
     res.json({ success: true, txHash });
   } catch (error: any) {

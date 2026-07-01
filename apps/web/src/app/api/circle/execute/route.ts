@@ -71,7 +71,8 @@ export async function POST(req: NextRequest) {
     }
 
     const challengeId = data?.data?.challengeId;
-    return NextResponse.json({ challengeId });
+    const txId = data?.data?.id;
+    return NextResponse.json({ challengeId, txId });
 
   } catch (err: any) {
     console.error("[Circle /api/circle/execute] Error:", err);

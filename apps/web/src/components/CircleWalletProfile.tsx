@@ -5,7 +5,7 @@ import ReactDOM from "react-dom";
 import {
   X, Copy, CheckCheck, RefreshCw, LogOut,
   ShieldCheck, ExternalLink, Wallet, Coins,
-  AlertCircle, Loader2, ArrowUpRight,
+  AlertCircle, Loader2, ArrowUpRight, User,
 } from "lucide-react";
 import { useCircleWallet } from "./CircleWalletContext";
 
@@ -289,38 +289,71 @@ export function CircleWalletProfile({ onClose }: CircleWalletProfileProps) {
             </div>
           )}
 
-          {!loadingBal && balances.map((b, i) => (
-            <div key={i} style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 12px", borderRadius: "10px",
-              background: "rgba(255,255,255,0.03)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              marginBottom: i < balances.length - 1 ? "6px" : 0,
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{
-                  width: "32px", height: "32px", borderRadius: "50%",
-                  background: b.token.symbol === "USDC"
-                    ? "linear-gradient(135deg, #2775CA, #1a4f8a)"
-                    : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "0.65rem", fontWeight: 800, color: "#fff",
-                }}>
-                  {b.token.symbol.slice(0, 3)}
+          {!loadingBal && balances.map((b, i) => {
+            // Map token symbols to their real logo URLs
+            const logoMap: Record<string, string> = {
+              USDC:   "https://assets.coingecko.com/coins/images/6319/small/usdc.png",
+              USDT:   "https://assets.coingecko.com/coins/images/325/small/Tether.png",
+              BTC:    "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
+              ETH:    "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
+              MATIC:  "https://assets.coingecko.com/coins/images/4713/small/matic-token-icon.png",
+              SOL:    "https://assets.coingecko.com/coins/images/4128/small/solana.png",
+              ARB:    "https://assets.coingecko.com/coins/images/16547/small/photo_2023-03-29_21.47.00.jpeg",
+              BASE:   "https://assets.coingecko.com/coins/images/33613/small/base.png",
+            };
+            // cirBTC → BTC logo, cir-prefixed tokens → strip prefix
+            const symbolKey = b.token.symbol.replace(/^cir/i, "").toUpperCase();
+            const logoUrl = logoMap[b.token.symbol.toUpperCase()] || logoMap[symbolKey];
+            const fallbackBg = b.token.symbol.toUpperCase() === "USDC"
+              ? "linear-gradient(135deg, #2775CA, #1a4f8a)"
+              : "linear-gradient(135deg, #6366f1, #8b5cf6)";
+
+            return (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 12px", borderRadius: "10px",
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                marginBottom: i < balances.length - 1 ? "6px" : 0,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div style={{
+                    width: "32px", height: "32px", borderRadius: "50%",
+                    background: fallbackBg,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "0.65rem", fontWeight: 800, color: "#fff",
+                    overflow: "hidden", flexShrink: 0,
+                  }}>
+                    {logoUrl ? (
+                      <img
+                        src={logoUrl}
+                        alt={b.token.symbol}
+                        width={32}
+                        height={32}
+                        style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = "none";
+                          (e.currentTarget.parentElement as HTMLElement).innerText = b.token.symbol.slice(0, 3);
+                        }}
+                      />
+                    ) : (
+                      b.token.symbol.slice(0, 3)
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>{b.token.symbol}</div>
+                    <div style={{ fontSize: "0.68rem", color: "#6b7280" }}>{b.token.name}</div>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>{b.token.symbol}</div>
-                  <div style={{ fontSize: "0.68rem", color: "#6b7280" }}>{b.token.name}</div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#e2e8f0" }}>
+                    {formatAmount(b.amount)}
+                  </div>
+                  <div style={{ fontSize: "0.68rem", color: "#6b7280" }}>{b.token.blockchain}</div>
                 </div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontWeight: 700, fontSize: "0.88rem", color: "#e2e8f0" }}>
-                  {formatAmount(b.amount)}
-                </div>
-                <div style={{ fontSize: "0.68rem", color: "#6b7280" }}>{b.token.blockchain}</div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Actions */}
@@ -334,7 +367,7 @@ export function CircleWalletProfile({ onClose }: CircleWalletProfileProps) {
 
           {wallet?.address && (
             <a
-              href={`/treasury/${wallet.address}`}
+              href="/profile"
               style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 padding: "11px 14px", borderRadius: "10px",
@@ -346,8 +379,8 @@ export function CircleWalletProfile({ onClose }: CircleWalletProfileProps) {
               onMouseLeave={e => (e.currentTarget.style.background = "rgba(99,102,241,0.07)")}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Wallet size={15} />
-                Open Treasury
+                <User size={15} />
+                Profile
               </div>
               <ArrowUpRight size={14} />
             </a>

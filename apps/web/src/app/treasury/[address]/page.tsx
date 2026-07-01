@@ -17,6 +17,7 @@ import { useTgBackButton } from "@/lib/telegram";
 import { useWallet } from "@/hooks/useWallet";
 import { useCircleWallet } from "@/components/CircleWalletContext";
 import { publicClient } from "@/lib/publicClient";
+import { supabase } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -323,6 +324,95 @@ export default function TreasuryDashboard() {
 
   const { address, isConnected } = useWallet();
   const { executeContractCall } = useCircleWallet();
+
+  const [poolName, setPoolName] = useState<string>("Group Treasury Pool");
+
+  // Load pool name from hybrid database (localStorage + Supabase)
+  useEffect(() => {
+    if (!mounted || !treasuryAddress) return;
+
+    const loadPoolName = async () => {
+      // 1. Try local storage
+      let localName = "";
+      try {
+        const saved = localStorage.getItem("arc_treasury_pools");
+        if (saved) {
+          const list = JSON.parse(saved);
+          const matched = list.find((p: any) => p.address.toLowerCase() === treasuryAddress.toLowerCase());
+          if (matched) {
+            localName = matched.name;
+            setPoolName(localName);
+          }
+        }
+      } catch (err) {}
+
+      // 2. Try Supabase
+      const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (hasSupabase) {
+        try {
+          const { data, error } = await supabase
+            .from("treasury_pools")
+            .select("name")
+            .eq("address", treasuryAddress.toLowerCase())
+            .single();
+          
+          if (!error && data?.name) {
+            setPoolName(data.name);
+            // Sync back to local storage if different
+            if (data.name !== localName) {
+              try {
+                const saved = localStorage.getItem("arc_treasury_pools");
+                let list = saved ? JSON.parse(saved) : [];
+                list = list.filter((p: any) => p.address.toLowerCase() !== treasuryAddress.toLowerCase());
+                list.push({ address: treasuryAddress, name: data.name });
+                localStorage.setItem("arc_treasury_pools", JSON.stringify(list));
+              } catch (err) {}
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to load pool name from Supabase:", err);
+        }
+      }
+    };
+
+    loadPoolName();
+  }, [mounted, treasuryAddress]);
+
+  // Rename the pool from the dashboard
+  const handleRenamePool = async () => {
+    const newName = window.prompt("Rename Treasury Pool:", poolName);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      alert("Pool name cannot be empty!");
+      return;
+    }
+
+    setPoolName(trimmed);
+
+    // Save to local storage
+    try {
+      const saved = localStorage.getItem("arc_treasury_pools");
+      let list = saved ? JSON.parse(saved) : [];
+      list = list.filter((p: any) => p.address.toLowerCase() !== treasuryAddress.toLowerCase());
+      list.push({ address: treasuryAddress, name: trimmed });
+      localStorage.setItem("arc_treasury_pools", JSON.stringify(list));
+    } catch (err) {}
+
+    // Save to Supabase if connected
+    const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (hasSupabase && address) {
+      try {
+        await supabase.from("treasury_pools").upsert({
+          address: treasuryAddress.toLowerCase(),
+          name: trimmed,
+          admin_address: address.toLowerCase(),
+        });
+      } catch (err) {
+        console.error("Failed to rename pool in Supabase:", err);
+      }
+    }
+  };
 
   // ── On-chain reads (manually fetched using publicClient) ──────────────────────
 
@@ -748,9 +838,28 @@ export default function TreasuryDashboard() {
 
       {/* ── Header Title & Address ────────────────────────────────────────── */}
       <div className="glass-card" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
-        <h1 style={{ fontSize: "1.4rem", fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #FFF 0%, #AAA 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-          Group Treasury Pool
-        </h1>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "12px" }}>
+          <h1 style={{ fontSize: "1.4rem", fontWeight: 800, margin: 0, background: "linear-gradient(135deg, #FFF 0%, #AAA 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            {poolName}
+          </h1>
+          <button 
+            onClick={handleRenamePool}
+            style={{
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "6px",
+              color: "var(--text-secondary)",
+              padding: "4px 10px",
+              fontSize: "0.75rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px"
+            }}
+          >
+            Rename Pool
+          </button>
+        </div>
         <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-muted)", fontFamily: "Space Grotesk", wordBreak: "break-all" }}>
           Contract: <b style={{ color: "var(--primary)" }}>{treasuryAddress}</b>
         </p>
@@ -842,8 +951,6 @@ export default function TreasuryDashboard() {
         {/* ── Left column: Circle Wallet + Deposit + Direct Spend ──────────── */}
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
 
-          {/* Circle Wallet — auto-hidden for non-Telegram users */}
-          <CircleWalletCard />
 
           {/* Deposit */}
           <div className="glass-card" style={{ padding: "28px" }}>

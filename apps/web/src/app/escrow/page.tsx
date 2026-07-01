@@ -40,6 +40,8 @@ function JobRow({ jobId }: { jobId: number }) {
   const budget = formatUnits(budgetRaw, 6);
   const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
 
+  if (isPhysical) return null;
+
   return (
     <Link href={`/escrow/${jobId}`} style={{ textDecoration: "none", color: "inherit" }}>
       <div 
