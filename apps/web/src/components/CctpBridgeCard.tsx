@@ -10,11 +10,11 @@
  * Requires a MetaMask / injected EVM wallet to be connected.
  */
 
-import React, { useState, useCallback } from "react";
-import {
-  useAccount, useWriteContract, usePublicClient, useSwitchChain,
-} from "wagmi";
-import { decodeEventLog, keccak256, parseUnits, formatUnits } from "viem";
+import React, { useState, useCallback, useEffect } from "react";
+import { 
+  decodeEventLog, keccak256, parseUnits, formatUnits,
+  createWalletClient, createPublicClient, custom, http
+} from "viem";
 import { waitForReceipt } from "@/lib/utils";
 import {
   CCTP_CHAINS, CCTP_CHAIN_KEYS,
@@ -121,10 +121,8 @@ interface Props {
 }
 
 export function CctpBridgeCard({ onBack }: Props) {
-  const { address, chain } = useAccount();
-  const { writeContractAsync } = useWriteContract();
-  const publicClient = usePublicClient();
-  const { switchChainAsync } = useSwitchChain();
+  const [address, setAddress] = useState<`0x${string}` | null>(null);
+  const [chainId, setChainId] = useState<number | null>(null);
 
   const [srcKey, setSrcKey]   = useState("eth-sepolia");
   const [dstKey, setDstKey]   = useState("base-sepolia");
@@ -137,6 +135,98 @@ export function CctpBridgeCard({ onBack }: Props) {
 
   const srcChain = CCTP_CHAINS[srcKey];
   const dstChain = CCTP_CHAINS[dstKey];
+
+  // Connect to MetaMask / injected wallet
+  const connectWallet = useCallback(async () => {
+    if (typeof window === "undefined" || !(window as any).ethereum) {
+      setErrorMsg("MetaMask or compatible injected wallet not found.");
+      return;
+    }
+    try {
+      const provider = (window as any).ethereum;
+      const accounts = await provider.request({ method: "eth_requestAccounts" });
+      const currentChainId = await provider.request({ method: "eth_chainId" });
+      setAddress(accounts[0] as `0x${string}`);
+      setChainId(parseInt(currentChainId, 16));
+      setErrorMsg("");
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to connect wallet.");
+    }
+  }, []);
+
+  // Listen for account/chain changes
+  useEffect(() => {
+    if (typeof window === "undefined" || !(window as any).ethereum) return;
+    const provider = (window as any).ethereum;
+
+    const handleAccounts = (accounts: string[]) => {
+      if (accounts.length > 0) {
+        setAddress(accounts[0] as `0x${string}`);
+      } else {
+        setAddress(null);
+      }
+    };
+
+    const handleChain = (hexId: string) => {
+      setChainId(parseInt(hexId, 16));
+    };
+
+    provider.on("accountsChanged", handleAccounts);
+    provider.on("chainChanged", handleChain);
+
+    // Initial check
+    provider.request({ method: "eth_accounts" }).then((accounts: string[]) => {
+      if (accounts.length > 0) {
+        setAddress(accounts[0] as `0x${string}`);
+      }
+    });
+    provider.request({ method: "eth_chainId" }).then((hexId: string) => {
+      setChainId(parseInt(hexId, 16));
+    });
+
+    return () => {
+      if (provider.removeListener) {
+        provider.removeListener("accountsChanged", handleAccounts);
+        provider.removeListener("chainChanged", handleChain);
+      }
+    };
+  }, []);
+
+  // Helper to switch chains
+  const switchChain = useCallback(async (targetChainId: number) => {
+    if (typeof window === "undefined" || !(window as any).ethereum) return;
+    const provider = (window as any).ethereum;
+    try {
+      await provider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: `0x${targetChainId.toString(16)}` }],
+      });
+      setChainId(targetChainId);
+    } catch (err: any) {
+      if (err.code === 4902) {
+        const targetChain = Object.values(CCTP_CHAINS).find(c => c.id === targetChainId);
+        if (targetChain) {
+          await provider.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: `0x${targetChainId.toString(16)}`,
+                chainName: targetChain.name,
+                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+                rpcUrls: [targetChain.rpcUrl],
+                blockExplorerUrls: [targetChain.explorerUrl],
+              },
+            ],
+          });
+          setChainId(targetChainId);
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
+  }, []);
 
   // ── Poll IRIS until attestation is complete ──────────────────────────────
   const pollAttestation = useCallback(async (messageHash: `0x${string}`): Promise<string> => {
@@ -154,26 +244,53 @@ export function CctpBridgeCard({ onBack }: Props) {
 
   // ── Main bridge flow ─────────────────────────────────────────────────────
   const handleBridge = useCallback(async () => {
-    if (!address || !amount) return;
+    if (!address || !amount || typeof window === "undefined" || !(window as any).ethereum) return;
     setErrorMsg("");
     const amountUnits = parseUnits(amount, 6); // USDC has 6 decimals
+    const provider = (window as any).ethereum;
 
     try {
       // ── Step 1: Approve ────────────────────────────────────────────────
       setStep("approving");
       setStatusMsg("Switching to source chain and approving USDC spend…");
 
-      if (chain?.id !== srcChain.id) {
-        await switchChainAsync({ chainId: srcChain.id });
+      if (chainId !== srcChain.id) {
+        await switchChain(srcChain.id);
       }
 
-      await writeContractAsync({
+      const walletClientSrc = createWalletClient({
+        account: address,
+        chain: {
+          id: srcChain.id,
+          name: srcChain.name,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: [srcChain.rpcUrl] } },
+        } as any,
+        transport: custom(provider),
+      });
+
+      const publicClientSrc = createPublicClient({
+        chain: {
+          id: srcChain.id,
+          name: srcChain.name,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: [srcChain.rpcUrl] } },
+        } as any,
+        transport: http(srcChain.rpcUrl),
+      });
+
+      const approveHash = await (walletClientSrc as any).writeContract({
         address: srcChain.usdc,
         abi: USDC_ABI,
         functionName: "approve",
         args: [srcChain.tokenMessenger, amountUnits],
-        chainId: srcChain.id,
       });
+
+      setStatusMsg("Waiting for approval transaction to be confirmed…");
+      const approveReceipt = await waitForReceipt(publicClientSrc, approveHash);
+      if (approveReceipt.status !== "success") {
+        throw new Error("USDC approval transaction failed.");
+      }
 
       // ── Step 2: Burn ───────────────────────────────────────────────────
       setStep("burning");
@@ -182,18 +299,17 @@ export function CctpBridgeCard({ onBack }: Props) {
       const mintRecipient = addressToBytes32(address) as `0x${string}`;
       const ZERO_BYTES32  = `0x${"0".repeat(64)}` as `0x${string}`;
 
-      const burnHash = await writeContractAsync({
+      const burnHash = await (walletClientSrc as any).writeContract({
         address: srcChain.tokenMessenger,
         abi: TOKEN_MESSENGER_ABI,
         functionName: "depositForBurn",
         args: [amountUnits, dstChain.domainId, mintRecipient, srcChain.usdc, ZERO_BYTES32],
-        chainId: srcChain.id,
       });
       setBurnTxHash(burnHash);
 
       // Wait for burn tx to be mined
       setStatusMsg("Waiting for burn transaction to be confirmed…");
-      const receipt = await waitForReceipt(publicClient!, burnHash);
+      const receipt = await waitForReceipt(publicClientSrc, burnHash);
 
       // Extract MessageSent event to get the message bytes, then compute messageHash
       let messageBytes: `0x${string}` | null = null;
@@ -223,21 +339,40 @@ export function CctpBridgeCard({ onBack }: Props) {
       setStep("minting");
       setStatusMsg("Switching to destination chain to mint USDC…");
 
-      if (chain?.id !== dstChain.id) {
-        await switchChainAsync({ chainId: dstChain.id });
-      }
+      // We must switch to the destination chain before creating the wallet client for the destination
+      await switchChain(dstChain.id);
+
+      const walletClientDst = createWalletClient({
+        account: address,
+        chain: {
+          id: dstChain.id,
+          name: dstChain.name,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+        } as any,
+        transport: custom(provider),
+      });
+
+      const publicClientDst = createPublicClient({
+        chain: {
+          id: dstChain.id,
+          name: dstChain.name,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+        } as any,
+        transport: http(dstChain.rpcUrl),
+      });
 
       setStatusMsg("Minting USDC on destination chain…");
-      const mintHash = await writeContractAsync({
+      const mintHash = await (walletClientDst as any).writeContract({
         address: dstChain.messageTransmitter,
         abi: MESSAGE_TRANSMITTER_ABI,
         functionName: "receiveMessage",
         args: [messageBytes, attestation as `0x${string}`],
-        chainId: dstChain.id,
       });
       setDstTxHash(mintHash);
 
-      await waitForReceipt(publicClient!, mintHash);
+      await waitForReceipt(publicClientDst, mintHash);
 
       setStep("done");
       setStatusMsg("");
@@ -246,7 +381,7 @@ export function CctpBridgeCard({ onBack }: Props) {
       setStep("error");
       setErrorMsg(err.shortMessage || err.message || "Bridge failed. Please try again.");
     }
-  }, [address, amount, chain, srcChain, dstChain, writeContractAsync, publicClient, switchChainAsync, pollAttestation]);
+  }, [address, amount, chainId, srcChain, dstChain, pollAttestation, switchChain]);
 
   const reset = () => {
     setStep("idle"); setStatusMsg(""); setErrorMsg(""); setBurnTxHash(null); setDstTxHash(null); setAmount("");
@@ -284,8 +419,21 @@ export function CctpBridgeCard({ onBack }: Props) {
 
       {/* Wallet not connected */}
       {!address && (
-        <div style={{ padding: "14px", borderRadius: "10px", background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.2)", fontSize: "0.85rem", color: "#f59e0b" }}>
-          ⚠️ Please connect a MetaMask wallet to use the CCTP bridge.
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ padding: "14px", borderRadius: "10px", background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.2)", fontSize: "0.85rem", color: "#f59e0b" }}>
+            ⚠️ Please connect a MetaMask wallet to use the CCTP bridge.
+          </div>
+          <button
+            onClick={connectWallet}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+              padding: "12px 20px", borderRadius: "12px", border: "none",
+              background: "linear-gradient(135deg, #f59e0b, #ef4444)",
+              color: "#fff", fontWeight: 700, fontSize: "0.95rem", cursor: "pointer"
+            }}
+          >
+            Connect MetaMask
+          </button>
         </div>
       )}
 
