@@ -417,6 +417,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
         abi: USDC_ABI,
         functionName: "approve",
         args: [srcChain.tokenMessenger, amountUnits],
+        gas: BigInt(80000), // Prevent RPC gas limit inflation
       });
 
       setStatusMsg("Waiting for approval transaction to be confirmed…");
@@ -438,6 +439,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
         abi: TOKEN_MESSENGER_ABI,
         functionName: "depositForBurn",
         args: [amountUnits, dstChain.domainId, mintRecipient, srcChain.usdc, ZERO_BYTES32],
+        gas: BigInt(250000), // Explicit override to bypass buggy RPC gas limit estimation
       });
       setBurnTxHash(burnHash);
 
@@ -515,6 +517,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           abi: MESSAGE_TRANSMITTER_ABI,
           functionName: "receiveMessage",
           args: [messageBytes, attestation as `0x${string}`],
+          gas: BigInt(350000), // Prevent RPC gas limit inflation during CCTP minting
         });
         setDstTxHash(mintHash);
 
