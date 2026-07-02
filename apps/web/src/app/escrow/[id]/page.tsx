@@ -12,6 +12,8 @@ import { waitForReceipt } from "@/lib/utils";
 import { useWallet } from "@/hooks/useWallet";
 import { useCircleWallet } from "@/components/CircleWalletContext";
 import { publicClient } from "@/lib/publicClient";
+import { ReviewModal } from "@/components/ReviewModal";
+
 
 const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x546c8C7A9d3Db29eb0c194Da0c72631F8a717b00";
 
@@ -45,6 +47,13 @@ export default function EscrowDetail() {
   // Custom toast notification state and alert helper to replace native browser popups
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Features extensions
+  const [usdRate, setUsdRate] = useState<number | null>(null);
+  const [aiSummary, setAiSummary] = useState<any>(null);
+  const [fraudData, setFraudData] = useState<any>(null);
+  const [loadingAI, setLoadingAI] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   const alert = useCallback((message: string) => {
     const lower = message.toLowerCase();
@@ -176,6 +185,49 @@ export default function EscrowDetail() {
       setBudgetInput(proposedBudget);
     }
   }, [proposedBudget]);
+
+  // Fetch USD rate from CoinGecko
+  useEffect(() => {
+    fetch("https://api.coingecko.com/api/v3/simple/price?ids=usd-coin&vs_currencies=usd")
+      .then(res => res.json())
+      .then(data => {
+        if (data?.["usd-coin"]?.usd) {
+          setUsdRate(data["usd-coin"].usd);
+        }
+      })
+      .catch(() => setUsdRate(1.0));
+  }, []);
+
+  // Fetch AI summary & fraud flags
+  useEffect(() => {
+    if (!description || !budget) return;
+    setLoadingAI(true);
+    fetch("/api/ai/summarize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description, type: isPhysical ? "physical" : "digital" }),
+    })
+      .then(res => res.json())
+      .then(data => setAiSummary(data))
+      .catch(() => {});
+
+    fetch("/api/ai/fraud-check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        description,
+        amount: budget,
+        buyerAddress: client,
+        sellerAddress: provider,
+        escrowId: Number(jobId)
+      }),
+    })
+      .then(res => res.json())
+      .then(data => setFraudData(data))
+      .catch(() => {})
+      .finally(() => setLoadingAI(false));
+  }, [description, budget, client, provider, isPhysical, jobId]);
+
 
   const fetchSubmission = async () => {
     // 1. Try to fetch from Supabase directly first if available
@@ -566,7 +618,20 @@ export default function EscrowDetail() {
             file_name: isPhysical ? "meetup_code" : "",
             source: "web"
           });
-        } catch (dbErr) {}
+
+          // Notify the client that the provider has updated the budget
+          await supabase.from("notifications").insert({
+            recipient_address: client.toLowerCase(),
+            type: "COUNTER_OFFER",
+            escrow_id: Number(jobId),
+            message: `Seller ${address?.slice(0, 8)}...${address?.slice(-4)} has set/updated the budget to ${targetAmount} USDC for JOB #${jobId}.`,
+            read: false,
+            metadata: { provider: address, budget: targetAmount }
+          });
+          console.log("Budget set notification sent to client.");
+        } catch (dbErr) {
+          console.error("Failed to insert budget set notification:", dbErr);
+        }
       }
       try {
         localStorage.removeItem(`arc_negotiation_${jobId}`);
@@ -678,6 +743,24 @@ export default function EscrowDetail() {
       if (fundReceipt.status !== "success") throw new Error("Funding transaction reverted!");
 
       refetch();
+
+      // Notify the provider (seller) that the job has been funded
+      const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (hasSupabase) {
+        try {
+          await supabase.from("notifications").insert({
+            recipient_address: provider.toLowerCase(),
+            type: "FUNDED",
+            escrow_id: Number(jobId),
+            message: `Buyer ${address?.slice(0, 8)}...${address?.slice(-4)} has funded JOB #${jobId} with ${budget} USDC! You can now start working.`,
+            read: false,
+            metadata: { client: address, budget }
+          });
+          console.log("Funding notification sent to provider.");
+        } catch (dbErr) {
+          console.error("Failed to insert funding notification:", dbErr);
+        }
+      }
     } catch (err: any) {
       alert(`Funding failed: ${err.message || err}`);
     } finally {
@@ -747,6 +830,17 @@ export default function EscrowDetail() {
           if (!dbErr) {
             dbSaved = true;
             console.log("Submission details saved to Supabase.");
+
+            // Notify the client that the provider has submitted deliverables
+            await supabase.from("notifications").insert({
+              recipient_address: client.toLowerCase(),
+              type: "SUBMITTED",
+              escrow_id: Number(jobId),
+              message: `Seller ${address?.slice(0, 8)}...${address?.slice(-4)} has submitted deliverables for JOB #${jobId}! Please review.`,
+              read: false,
+              metadata: { provider: address, file_name: fileName }
+            });
+            console.log("Submission notification sent to client.");
           } else {
             console.error("Supabase DB upsert error:", dbErr);
           }
@@ -1024,6 +1118,57 @@ export default function EscrowDetail() {
           </div>
         </div>
 
+        {/* AI & Safety Analysis */}
+        {(aiSummary || (fraudData && fraudData.flags?.length > 0)) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {/* Fraud warning block */}
+            {fraudData && fraudData.flags?.length > 0 && (
+              <div style={{
+                background: "rgba(239,68,68,0.06)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                borderRadius: "12px",
+                padding: "16px",
+                color: "#f87171",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "0.88rem", marginBottom: "8px" }}>
+                  <ShieldAlert size={16} />
+                  <span>Safety Analysis: {fraudData.riskLevel} Risk Detected</span>
+                </div>
+                <ul style={{ margin: 0, paddingLeft: "20px", fontSize: "0.8rem", display: "flex", flexDirection: "column", gap: "4px" }}>
+                  {fraudData.flags.map((flag: string, i: number) => (
+                    <li key={i}>{flag}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* AI Summary Block */}
+            {aiSummary && (
+              <div style={{
+                background: "rgba(99,102,241,0.04)",
+                border: "1px solid rgba(99,102,241,0.15)",
+                borderRadius: "12px",
+                padding: "16px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 700, fontSize: "0.88rem", color: "#818cf8", marginBottom: "8px" }}>
+                  <span>✨ AI Contract Summary</span>
+                </div>
+                <p style={{ margin: "0 0 10px", fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                  {aiSummary.plainSummary}
+                </p>
+                {aiSummary.priceRange && (aiSummary.priceRange.min || aiSummary.priceRange.max) && (
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "flex", gap: "12px" }}>
+                    <span>💡 Estimated Price: {aiSummary.priceRange.min ?? "?"} - {aiSummary.priceRange.max ?? "?"} USDC</span>
+                    {aiSummary.estimatedDuration && (
+                      <span>⏱ Est. Time: {aiSummary.estimatedDuration}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Budget detail */}
         <div style={{ textAlign: "center", padding: "24px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "16px" }}>
           <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
@@ -1032,7 +1177,13 @@ export default function EscrowDetail() {
           <div style={{ fontSize: "2.8rem", fontWeight: 800, color: budgetRaw === BigInt(0) && proposedBudget ? "var(--warning)" : "var(--text-primary)", fontFamily: "Space Grotesk", marginTop: "4px" }}>
             {budgetRaw === BigInt(0) && proposedBudget ? proposedBudget : budget} <span style={{ fontSize: "1.5rem", fontWeight: 600, color: "var(--primary)" }}>USDC</span>
           </div>
+          {usdRate !== null && (
+            <div style={{ fontSize: "0.9rem", color: "var(--text-muted)", marginTop: "4px", fontWeight: 500 }}>
+              ≈ ${(parseFloat(budgetRaw === BigInt(0) && proposedBudget ? proposedBudget || "0" : budget) * usdRate).toFixed(2)} USD <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>(Live Price Lock)</span>
+            </div>
+          )}
         </div>
+
 
         {/* Transaction Hash */}
         {txHashResolved && (
@@ -1452,7 +1603,7 @@ export default function EscrowDetail() {
           )}
 
           {/* Expired state — buyer can claim refund */}
-          {status === 5 && isClient && (
+          {isClient && (status === 5 || (status === 1 && Date.now() / 1000 > Number(expiredAtRaw))) && (
             <div style={{ background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--danger)", fontWeight: 600 }}>
                 <Clock size={20} />
@@ -1494,6 +1645,23 @@ export default function EscrowDetail() {
               )}
             </div>
           )}
+
+          {/* Completed State Review Option */}
+          {status === 3 && (
+            <div style={{ background: "rgba(16, 185, 129, 0.04)", border: "1px solid rgba(16, 185, 129, 0.15)", borderRadius: "12px", padding: "20px", textAlign: "center" }}>
+              <span style={{ fontSize: "1.1rem" }}>🌟</span>
+              <p style={{ margin: "6px 0 12px", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                This escrow is completed. Leave a review for the counterparty to build their reputation score.
+              </p>
+              <button
+                onClick={() => setShowReviewModal(true)}
+                className="btn-primary"
+                style={{ margin: "0 auto", padding: "8px 16px", fontSize: "0.82rem" }}
+              >
+                Leave a Review
+              </button>
+            </div>
+          )}
         </div>
         
         {toast && (
@@ -1523,6 +1691,15 @@ export default function EscrowDetail() {
         )}
 
       </div>
+
+      {showReviewModal && (
+        <ReviewModal
+          escrowId={Number(jobId)}
+          revieweeAddress={isClient ? provider : client}
+          revieweeName={isClient ? "Seller" : "Buyer"}
+          onClose={() => setShowReviewModal(false)}
+        />
+      )}
     </div>
   );
 }

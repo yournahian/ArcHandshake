@@ -62,6 +62,7 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await res.json();
+    console.log("[Circle W3S execute response]", JSON.stringify(data));
 
     if (!res.ok) {
       return NextResponse.json(

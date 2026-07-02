@@ -14,14 +14,16 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ShieldCheck, QrCode, Landmark } from "lucide-react";
+import { Home, ShieldCheck, QrCode, Landmark, Globe } from "lucide-react";
 import { HeaderWallet } from "@/components/HeaderWallet";
+import { NotificationBell } from "@/components/NotificationBell";
 
 const NAV_TABS = [
-  { href: "/",        label: "Home",     icon: Home },
-  { href: "/escrow",  label: "OTC",      icon: ShieldCheck },
-  { href: "/meetup",  label: "Meetup",   icon: QrCode },
-  { href: "/treasury",label: "Pool",     icon: Landmark },
+  { href: "/",              label: "Home",    icon: Home },
+  { href: "/escrow",        label: "OTC",     icon: ShieldCheck },
+  { href: "/meetup",        label: "Meetup",  icon: QrCode },
+  { href: "/treasury",      label: "Pool",    icon: Landmark },
+  { href: "/escrow/board",  label: "Board",   icon: Globe },
 ];
 
 export function MobileNav() {
@@ -51,12 +53,16 @@ export function MobileNav() {
         </Link>
 
         <nav className="main-nav">
-          <Link href="/escrow"   className={`nav-link ${isActive("/escrow")   ? "nav-link-active" : ""}`}>OTC Escrow</Link>
-          <Link href="/meetup"   className={`nav-link ${isActive("/meetup")   ? "nav-link-active" : ""}`}>Physical Escrow</Link>
-          <Link href="/treasury" className={`nav-link ${isActive("/treasury") ? "nav-link-active" : ""}`}>Group Pool</Link>
+          <Link href="/escrow"       className={`nav-link ${isActive("/escrow")       ? "nav-link-active" : ""}`}>OTC Escrow</Link>
+          <Link href="/meetup"       className={`nav-link ${isActive("/meetup")       ? "nav-link-active" : ""}`}>Physical Escrow</Link>
+          <Link href="/treasury"     className={`nav-link ${isActive("/treasury")     ? "nav-link-active" : ""}`}>Group Pool</Link>
+          <Link href="/escrow/board" className={`nav-link ${isActive("/escrow/board") ? "nav-link-active" : ""}`}>Board</Link>
         </nav>
 
-        <HeaderWallet />
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <NotificationBell />
+          <HeaderWallet />
+        </div>
       </header>
 
       {/* ── Mobile Top Bar (wallet only) ──────────────────────────────────── */}
@@ -64,7 +70,10 @@ export function MobileNav() {
         <Link href="/" className="header-logo" style={{ fontSize: "1.1rem" }}>
           ArcHandshake
         </Link>
-        <HeaderWallet />
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <NotificationBell />
+          <HeaderWallet />
+        </div>
       </div>
 
       {/* ── Mobile Bottom Tab Bar ─────────────────────────────────────────── */}

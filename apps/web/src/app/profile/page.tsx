@@ -7,7 +7,7 @@ import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import {
   User, Wallet, Landmark, ShieldCheck, History,
   TrendingUp, Award, Layers, ArrowUpRight, ArrowDownLeft,
-  Activity, Settings, Plus, RefreshCw, Calendar
+  Activity, Settings, Plus, RefreshCw, Calendar, ExternalLink
 } from "lucide-react";
 import { useWallet } from "@/hooks/useWallet";
 import { useCircleWallet } from "@/components/CircleWalletContext";
@@ -58,8 +58,52 @@ export default function ProfilePage() {
   const [balanceUSDC, setBalanceUSDC] = useState("0.00");
   const [allBalances, setAllBalances] = useState<any[]>([]);
   const [circleTransactions, setCircleTransactions] = useState<any[]>([]);
+  const [savedSwaps, setSavedSwaps] = useState<Record<string, any>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingTx, setLoadingTx] = useState(false);
+
+  // Features extensions states
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [reputation, setReputation] = useState<any>(null);
+  const [referralData, setReferralData] = useState<any>(null);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [generatedApiKey, setGeneratedApiKey] = useState("");
+  const [apiKeyLabel, setApiKeyLabel] = useState("");
+  const [savingWebhook, setSavingWebhook] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(false);
+
+  const loadReputationAndReferrals = useCallback(async () => {
+    if (!address) return;
+    try {
+      const repRes = await fetch(`/api/reputation?address=${address}`);
+      if (repRes.ok) setReputation(await repRes.json());
+
+      const refRes = await fetch(`/api/referrals?address=${address}`);
+      if (refRes.ok) setReferralData(await refRes.json());
+
+      const whRes = await fetch(`/api/webhooks?address=${address}`);
+      if (whRes.ok) {
+        const whData = await whRes.json();
+        if (whData.webhook) {
+          setWebhookUrl(whData.webhook.webhook_url);
+        }
+      }
+
+      // Fetch escrow proposals
+      const propRes = await fetch(`/api/proposals?address=${address}`);
+      if (propRes.ok) {
+        const propData = await propRes.json();
+        setProposals(propData.proposals || []);
+      }
+    } catch {}
+  }, [address]);
+
+  useEffect(() => {
+    if (address) {
+      loadReputationAndReferrals();
+    }
+  }, [address, loadReputationAndReferrals]);
 
   // Load username (Supabase + localStorage fallback)
   const loadUsername = useCallback(async () => {
@@ -137,6 +181,53 @@ export default function ProfilePage() {
     localStorage.setItem(`arc_username_${address.toLowerCase()}`, trimmed);
     confetti({ particleCount: 30 });
   };
+
+  const handleSaveWebhook = async () => {
+    if (!address || !webhookUrl) return;
+    setSavingWebhook(true);
+    try {
+      const res = await fetch("/api/webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, webhookUrl })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.secret) setWebhookSecret(data.secret);
+        showPrompt({ title: "Webhook Saved", description: "Webhook saved successfully!", alertOnly: true });
+      } else {
+        showPrompt({ title: "Failed to Save Webhook", description: data.error || "Failed to save webhook.", alertOnly: true });
+      }
+    } catch (e: any) {
+      showPrompt({ title: "Error Saving Webhook", description: e.message, alertOnly: true });
+    } finally {
+      setSavingWebhook(false);
+    }
+  };
+
+  const handleGenerateApiKey = async () => {
+    if (!address) return;
+    setGeneratingKey(true);
+    try {
+      const res = await fetch("/api/v1", { // Note: public REST API POST generates key
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, label: apiKeyLabel || "My Key" })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setGeneratedApiKey(data.key);
+        setApiKeyLabel("");
+      } else {
+        showPrompt({ title: "Failed to Generate Key", description: data.error || "Failed to generate key.", alertOnly: true });
+      }
+    } catch (e: any) {
+      showPrompt({ title: "Error Generating Key", description: e.message, alertOnly: true });
+    } finally {
+      setGeneratingKey(false);
+    }
+  };
+
 
   // Load saved pools (hybrid: Supabase + localStorage fallback)
   const loadPools = useCallback(async () => {
@@ -301,6 +392,18 @@ export default function ProfilePage() {
     }
   }, [mounted, wallet?.id, userToken, fetchCircleData]);
 
+  // Load saved swaps from localStorage to resolve swap amounts and symbols
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("arc_saved_swaps");
+        if (saved) {
+          setSavedSwaps(JSON.parse(saved));
+        }
+      } catch (err) {}
+    }
+  }, [circleTransactions]);
+
   // Saved pools helpers
   const savePool = async (addr: string, name: string) => {
     const cleanAddr = addr.trim();
@@ -437,6 +540,39 @@ export default function ProfilePage() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
               <h1 style={{ fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>@{username}</h1>
+              {reputation && (
+                <span
+                  title={`Reputation score: ${reputation.score}`}
+                  style={{
+                    background: "rgba(245,158,11,0.15)",
+                    border: "1px solid rgba(245,158,11,0.25)",
+                    borderRadius: "20px",
+                    padding: "2px 8px",
+                    fontSize: "0.72rem",
+                    fontWeight: 700,
+                    color: "#f59e0b",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px"
+                  }}
+                >
+                  {reputation.tierIcon} {reputation.tier} ({reputation.score} pts)
+                </span>
+              )}
+              {/* Verification Badges */}
+              <div style={{ display: "flex", gap: "4px" }}>
+                {wallet && (
+                  <span title="Circle Wallet Verified" style={{ background: "rgba(99,102,241,0.15)", color: "#818cf8", fontSize: "0.68rem", fontWeight: 700, padding: "2px 6px", borderRadius: "4px" }}>
+                    ✓ CIRCLE
+                  </span>
+                )}
+                {/* Check if in Telegram WebApp context */}
+                {typeof window !== "undefined" && (window as any).Telegram?.WebApp?.initData && (
+                  <span title="Telegram Linked" style={{ background: "rgba(14,165,233,0.15)", color: "#0ea5e9", fontSize: "0.68rem", fontWeight: 700, padding: "2px 6px", borderRadius: "4px" }}>
+                    ✓ TELEGRAM
+                  </span>
+                )}
+              </div>
               <button 
                 onClick={handleEditUsername}
                 style={{ 
@@ -456,11 +592,19 @@ export default function ProfilePage() {
                 Edit Username
               </button>
             </div>
-            <p style={{ margin: "6px 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-              Wallet: <code style={{ color: "var(--primary)", fontWeight: 600 }}>{address ? `${address.slice(0, 10)}…${address.slice(-8)}` : "Not connected"}</code>
-            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "6px" }}>
+              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                Wallet: <code style={{ color: "var(--primary)", fontWeight: 600 }}>{address ? `${address.slice(0, 10)}…${address.slice(-8)}` : "Not connected"}</code>
+              </p>
+              {reputation && reputation.reviewCount > 0 && (
+                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "inline-flex", alignItems: "center", gap: "2px" }}>
+                  ⭐ {reputation.avgRating} ({reputation.reviewCount} reviews)
+                </span>
+              )}
+            </div>
           </div>
         </div>
+
         <div style={{ display: "flex", gap: "10px" }}>
           <button 
             onClick={handleRefreshAll}
@@ -533,6 +677,19 @@ export default function ProfilePage() {
             <Landmark size={20} style={{ color: "#a5b4fc" }} />
           </div>
         </div>
+
+        {/* Fee Analytics */}
+        <div className="glass-card" style={{ padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Fees Saved (Arc USDC gas)</span>
+            <div style={{ fontSize: "1.8rem", fontWeight: 800, marginTop: "4px", fontFamily: "Space Grotesk", color: "#10b981" }}>
+              {(totalEscrows * 0.12).toFixed(2)} <span style={{ fontSize: "0.9rem", color: "#10b981" }}>USDC</span>
+            </div>
+          </div>
+          <div style={{ background: "rgba(16,185,129,0.08)", width: "46px", height: "46px", borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span>⚡</span>
+          </div>
+        </div>
       </div>
 
       {/* Main Split Grid */}
@@ -542,7 +699,7 @@ export default function ProfilePage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
           
           {/* Wallet Card - fully integrated */}
-          <CircleWalletCard />
+          <CircleWalletCard onTransactionSuccess={fetchCircleData} />
 
           {/* Recent Transactions Card (Separate Grid block directly under the Wallet) */}
           <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -573,8 +730,44 @@ export default function ProfilePage() {
                 {circleTransactions.map((tx: any) => {
                   const statusColor = tx.state === "COMPLETE" ? "#10b981" : tx.state === "FAILED" ? "#ef4444" : "#f59e0b";
                   const date = new Date(tx.updateDate || tx.createDate).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-                  const txAmount = tx.amounts?.[0] || tx.amount || "0.00";
                   
+                  // Check if there is local metadata for this swap transaction hash
+                  const txHashLower = tx.txHash?.toLowerCase();
+                  const savedSwap = txHashLower ? savedSwaps[txHashLower] : null;
+
+                  let displayLabel = "";
+                  let displayAmount = "";
+                  let isNegative = false;
+                  
+                  if (tx.isSwapTransaction) {
+                    const inputSymbol = savedSwap?.inputSymbol || "USDC";
+                    const outputSymbol = savedSwap?.outputSymbol || "EURC";
+                    displayLabel = `Swap ${inputSymbol} to ${outputSymbol}`;
+                    
+                    if (tx.operation === "CONTRACT_EXECUTION") {
+                      // Outbound swap execution leg
+                      const amt = savedSwap ? parseFloat(savedSwap.inputAmount).toFixed(2) : "1.00";
+                      displayAmount = `${amt} ${inputSymbol}`;
+                      isNegative = true;
+                    } else {
+                      // Inbound swap receipt leg
+                      const amt = savedSwap ? parseFloat(savedSwap.outputAmount).toFixed(2) : parseFloat(tx.amounts?.[0] || tx.amount || "0").toFixed(2);
+                      displayAmount = `${amt} ${outputSymbol}`;
+                      isNegative = false;
+                    }
+                  } else {
+                    // Regular transfers or non-swap contract calls
+                    isNegative = tx.transactionType === "OUTBOUND";
+                    const symbol = tx.tokenSymbol || "USDC";
+                    displayLabel = tx.contractLabel 
+                      ? tx.contractLabel 
+                      : (tx._kind === "transfer" 
+                        ? (isNegative ? `Withdraw ${symbol}` : `Receive ${symbol}`)
+                        : (isNegative ? `Send ${symbol}` : `Receive ${symbol}`));
+                    const amt = parseFloat(tx.amounts?.[0] || tx.amount || "0.00").toFixed(2);
+                    displayAmount = `${amt} ${symbol}`;
+                  }
+
                   return (
                     <div 
                       key={tx.id} 
@@ -587,17 +780,33 @@ export default function ProfilePage() {
                     >
                       <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                         <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span>{tx._kind === "transfer" 
-                            ? (tx.transactionType === "OUTBOUND" ? "Withdraw USDC" : "Receive USDC")
-                            : (tx.transactionType === "OUTBOUND" ? "Send USDC" : tx.transactionType === "INBOUND" ? "Receive USDC" : "Contract Call")}</span>
+                          <span>{displayLabel}</span>
                           <span style={{ fontSize: "0.65rem", padding: "1px 5px", borderRadius: "4px", background: "rgba(255,255,255,0.05)", color: statusColor }}>
                             {tx.state}
                           </span>
                         </div>
-                        <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{date}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "2px", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{date}</span>
+                          {tx.txHash && (
+                            <a 
+                              href={`https://testnet.arcscan.app/tx/${tx.txHash}`} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              style={{ display: "flex", alignItems: "center", gap: "2px", fontSize: "0.68rem", color: "var(--primary)", textDecoration: "none" }}
+                            >
+                              <span>{tx.txHash.slice(0, 6)}...{tx.txHash.slice(-4)}</span>
+                              <ExternalLink size={10} />
+                            </a>
+                          )}
+                          {tx.operation === "CONTRACT_EXECUTION" && tx.networkFee && parseFloat(tx.networkFee) > 0 && (
+                            <span style={{ fontSize: "0.68rem", color: "rgba(255,255,255,0.3)" }}>
+                              (Gas: {parseFloat(tx.networkFee).toFixed(4)} USDC)
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <span style={{ fontWeight: 700, color: tx.transactionType === "OUTBOUND" ? "#f43f5e" : "#10b981" }}>
-                        {tx.transactionType === "OUTBOUND" ? "-" : "+"}{parseFloat(txAmount).toFixed(2)} USDC
+                      <span style={{ fontWeight: 700, color: isNegative ? "#f43f5e" : "#10b981" }}>
+                        {isNegative ? "-" : "+"}{displayAmount}
                       </span>
                     </div>
                   );
@@ -719,6 +928,80 @@ export default function ProfilePage() {
             )}
           </div>
 
+          {/* Pending Escrow Proposals Card */}
+          {proposals.filter(p => p.status === "pending").length > 0 && (
+            <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <Layers size={20} style={{ color: "var(--primary)" }} />
+                <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>Pending Escrow Proposals</h2>
+              </div>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {proposals.filter(p => p.status === "pending").map((prop) => {
+                  const isUserBuyer = prop.buyer_address.toLowerCase() === address?.toLowerCase();
+                  return (
+                    <div 
+                      key={prop.id} 
+                      style={{ 
+                        padding: "14px", 
+                        background: "rgba(255,255,255,0.01)", 
+                        border: "1px solid var(--border-color)", 
+                        borderRadius: "10px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px"
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "0.65rem", fontWeight: 800, padding: "2px 6px", borderRadius: "999px", background: "rgba(168,85,247,0.15)", color: "#c084fc" }}>
+                            {prop.escrow_type === "physical" ? "PHYSICAL MEETUP" : "DIGITAL WORK"}
+                          </span>
+                          <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "#10b981" }}>{prop.budget} USDC</span>
+                        </div>
+                        <p style={{ margin: "4px 0", fontSize: "0.84rem", fontWeight: 600 }}>{prop.description}</p>
+                        <p style={{ margin: 0, fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                          {isUserBuyer ? `Proposed by Seller: ${prop.seller_address.slice(0, 8)}...${prop.seller_address.slice(-4)}` : `Proposed to Buyer: ${prop.buyer_address.slice(0, 8)}...${prop.buyer_address.slice(-4)}`}
+                        </p>
+                      </div>
+
+                      {isUserBuyer && (
+                        <div style={{ display: "flex", gap: "8px" }}>
+                          <button
+                            onClick={() => router.push(`/escrow/create?proposalId=${prop.id}`)}
+                            className="btn-primary"
+                            style={{ flex: 1, margin: 0, padding: "6px 12px", fontSize: "0.78rem", height: "32px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >
+                            Approve & Create Escrow
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await fetch("/api/proposals", {
+                                  method: "PUT",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ proposalId: prop.id, status: "declined" })
+                                });
+                                if (res.ok) {
+                                  showPrompt({ title: "Proposal Declined", alertOnly: true });
+                                  loadReputationAndReferrals();
+                                }
+                              } catch (e) {}
+                            }}
+                            className="btn-secondary"
+                            style={{ margin: 0, padding: "6px 12px", fontSize: "0.78rem", height: "32px", display: "flex", alignItems: "center", justifyContent: "center" }}
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Personal Escrows History Card */}
           <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
@@ -817,6 +1100,133 @@ export default function ProfilePage() {
                 </div>
               );
             })()}
+          </div>
+
+          {/* Referral Rewards Dashboard */}
+          {referralData && (
+            <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span>🎁</span>
+                <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>Referral Rewards</h2>
+              </div>
+              <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                Invite your friends to ArcHandshake. You earn <b style={{ color: "#10b981" }}>0.50 USDC</b> when they complete their first digital or physical escrow.
+              </p>
+              
+              <div style={{
+                background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)",
+                borderRadius: "10px", padding: "12px", display: "flex", gap: "12px", justifyContent: "space-around"
+              }}>
+                <div style={{ textAlign: "center" }}>
+                  <span style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)" }}>Total Invites</span>
+                  <span style={{ fontSize: "1.2rem", fontWeight: 700 }}>{referralData.total}</span>
+                </div>
+                <div style={{ borderLeft: "1px solid var(--border-color)" }} />
+                <div style={{ textAlign: "center" }}>
+                  <span style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)" }}>Completed</span>
+                  <span style={{ fontSize: "1.2rem", fontWeight: 700, color: "#10b981" }}>{referralData.completed}</span>
+                </div>
+                <div style={{ borderLeft: "1px solid var(--border-color)" }} />
+                <div style={{ textAlign: "center" }}>
+                  <span style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)" }}>Total Earned</span>
+                  <span style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--primary)" }}>{referralData.totalEarned} USDC</span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", marginBottom: "6px" }}>Your Referral Link</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <input
+                    type="text"
+                    readOnly
+                    value={referralData.referralLink}
+                    style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", fontSize: "0.8rem" }}
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(referralData.referralLink);
+                      showPrompt({ title: "Copied!", description: "Referral link copied to clipboard.", alertOnly: true });
+                    }}
+                    className="btn-primary"
+                    style={{ padding: "8px 12px", fontSize: "0.8rem" }}
+                  >
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Developer Webhooks & API Panel */}
+          <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <Settings size={20} style={{ color: "var(--primary)" }} />
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0 }}>Developer Integrations</h2>
+            </div>
+
+            {/* Webhook setup */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <span style={{ fontSize: "0.88rem", fontWeight: 600 }}>Webhook Notifications</span>
+              <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                Receive instant POST notifications to your server on escrow events.
+              </p>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="text"
+                  placeholder="https://yourserver.com/webhooks"
+                  value={webhookUrl}
+                  onChange={e => setWebhookUrl(e.target.value)}
+                  style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", fontSize: "0.8rem" }}
+                />
+                <button
+                  onClick={handleSaveWebhook}
+                  disabled={savingWebhook}
+                  className="btn-primary"
+                  style={{ padding: "8px 16px", fontSize: "0.8rem" }}
+                >
+                  {savingWebhook ? "Saving..." : "Save"}
+                </button>
+              </div>
+              {webhookSecret && (
+                <div style={{ background: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.15)", borderRadius: "8px", padding: "10px", fontSize: "0.78rem" }}>
+                  <span style={{ display: "block", fontWeight: 600, color: "#10b981", marginBottom: "4px" }}>✓ Webhook Secret Generated:</span>
+                  <code style={{ wordBreak: "break-all" }}>{webhookSecret}</code>
+                </div>
+              )}
+            </div>
+
+            <div style={{ borderBottom: "1px solid var(--border-color)" }} />
+
+            {/* API Key generator */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <span style={{ fontSize: "0.88rem", fontWeight: 600 }}>API Keys</span>
+              <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                Generate a key to query your escrows programmatically via the public REST API.
+              </p>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="text"
+                  placeholder="Key label (e.g. Server)"
+                  value={apiKeyLabel}
+                  onChange={e => setApiKeyLabel(e.target.value)}
+                  style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", fontSize: "0.8rem" }}
+                />
+                <button
+                  onClick={handleGenerateApiKey}
+                  disabled={generatingKey}
+                  className="btn-secondary"
+                  style={{ padding: "8px 16px", fontSize: "0.8rem" }}
+                >
+                  {generatingKey ? "Generating..." : "Generate Key"}
+                </button>
+              </div>
+              {generatedApiKey && (
+                <div style={{ background: "rgba(99,102,241,0.05)", border: "1px solid rgba(99,102,241,0.15)", borderRadius: "8px", padding: "10px", fontSize: "0.78rem" }}>
+                  <span style={{ display: "block", fontWeight: 600, color: "var(--primary)", marginBottom: "4px" }}>✓ API Key:</span>
+                  <code style={{ wordBreak: "break-all" }}>{generatedApiKey}</code>
+                </div>
+              )}
+            </div>
           </div>
 
         </div>

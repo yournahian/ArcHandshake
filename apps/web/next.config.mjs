@@ -7,6 +7,8 @@ const nextConfig = {
       ...config.resolve.fallback,
       "pino-pretty": false,
       "@react-native-async-storage/async-storage": false,
+      "@coral-xyz/anchor": false,
+      "@solana/web3.js": false,
     };
     return config;
   },

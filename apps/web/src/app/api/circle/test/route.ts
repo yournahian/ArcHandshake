@@ -1,32 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   const CIRCLE_API_KEY = (process.env.CIRCLE_API_KEY || "").trim();
   const baseUrl = "https://api.circle.com/v1/w3s";
-  
+  const walletId = "c9372c88-ce95-50b7-85b6-b506d5dfc673";
+
   try {
-    const res = await fetch(`${baseUrl}/config/entity`, {
-      method: "GET",
+    const res = await fetch(`${baseUrl}/transactions?walletIds[]=${walletId}&pageSize=10`, {
       headers: {
         Authorization: `Bearer ${CIRCLE_API_KEY}`,
-        Accept: "application/json"
-      }
+      },
     });
-    
-    const status = res.status;
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (e) {
-      data = "JSON parse failed";
-    }
-    
+
+    const data = await res.json();
     return NextResponse.json({
-      status,
-      data,
-      envAppId: process.env.NEXT_PUBLIC_CIRCLE_APP_ID
+      status: res.status,
+      rawTransactions: data?.data?.transactions || []
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

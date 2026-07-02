@@ -5,6 +5,7 @@ import { CircleWalletProvider } from "@/components/CircleWalletContext";
 import { CircleWalletSetup } from "@/components/CircleWalletSetup";
 import { TelegramProvider } from "@/components/TelegramProvider";
 import { MobileNav } from "@/components/MobileNav";
+import { NotificationProvider } from "@/components/NotificationContext";
 import HoverFooter from "@/components/ui/hover-footer";
 
 export const metadata = {
@@ -34,17 +35,19 @@ export default function RootLayout({
         <TelegramProvider>
           <Web3Provider>
             <CircleWalletProvider>
-              {/* Auto-shows PIN setup modal for Telegram users who don't yet have a wallet */}
-              <CircleWalletSetup />
+              <NotificationProvider>
+                {/* Auto-shows PIN setup modal for Telegram users who don't yet have a wallet */}
+                <CircleWalletSetup />
 
-              {/* Responsive nav: desktop top bar + mobile bottom tab bar */}
-              <MobileNav />
+                {/* Responsive nav: desktop top bar + mobile bottom tab bar */}
+                <MobileNav />
 
-              <main className="dashboard-container">
-                {children}
-              </main>
+                <main className="dashboard-container">
+                  {children}
+                </main>
 
-              <HoverFooter />
+                <HoverFooter />
+              </NotificationProvider>
             </CircleWalletProvider>
           </Web3Provider>
         </TelegramProvider>

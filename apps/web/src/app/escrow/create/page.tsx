@@ -45,6 +45,7 @@ function CreateEscrowContent() {
   }, [executeContractCall]);
 
   // Form State
+  const [creatorRole, setCreatorRole] = useState<"buyer" | "seller">("buyer");
   const [provider, setProvider] = useState("");
   const [evaluator, setEvaluator] = useState(DEFAULT_EVALUATOR);
   const [budget, setBudget] = useState("");
@@ -52,6 +53,66 @@ function CreateEscrowContent() {
   const [hours, setHours] = useState("24");
   const [escrowType, setEscrowType] = useState<"digital" | "physical">("digital");
   const [qrCodeWord, setQrCodeWord] = useState("");
+  const [proposalId, setProposalId] = useState<string | null>(null);
+
+  // Features extensions: Templates & AI
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [aiSummary, setAiSummary] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("arc_escrow_templates");
+      if (saved) setTemplates(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  const saveTemplate = () => {
+    const name = window.prompt("Enter a name for this template:");
+    if (!name) return;
+    const newTpl = { id: Date.now().toString(), name, provider, evaluator, budget, hours, escrowType, description, qrCodeWord };
+    const list = [...templates, newTpl];
+    setTemplates(list);
+    localStorage.setItem("arc_escrow_templates", JSON.stringify(list));
+    alert("Template saved!");
+  };
+
+  const applyTemplate = (tpl: any) => {
+    if (tpl.provider) setProvider(tpl.provider);
+    if (tpl.evaluator) setEvaluator(tpl.evaluator);
+    if (tpl.budget) setBudget(tpl.budget);
+    if (tpl.hours) setHours(tpl.hours);
+    if (tpl.escrowType) setEscrowType(tpl.escrowType);
+    if (tpl.description) setDescription(tpl.description);
+    if (tpl.qrCodeWord) setQrCodeWord(tpl.qrCodeWord);
+  };
+
+  const deleteTemplate = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const list = templates.filter(t => t.id !== id);
+    setTemplates(list);
+    localStorage.setItem("arc_escrow_templates", JSON.stringify(list));
+  };
+
+  const analyzeDescription = async () => {
+    if (!description.trim()) return;
+    setAiLoading(true);
+    try {
+      const res = await fetch("/api/ai/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description, type: escrowType }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiSummary(data);
+        if (data.priceRange?.min && !budget) {
+          setBudget(data.priceRange.min.toString());
+        }
+      }
+    } catch {}
+    finally { setAiLoading(false); }
+  };
 
   // Loading & Transaction States
   // Steps: 1=Form, 2=Waiting for seller to setBudget, 3=Approve+Fund, 5=Complete
@@ -64,18 +125,40 @@ function CreateEscrowContent() {
   const [budgetFound, setBudgetFound] = useState(false);
 
 
+
   // Pre-fill parameters from Telegram query params
   useEffect(() => {
     const providerParam = searchParams.get("provider");
     const amountParam = searchParams.get("amount");
     const descriptionParam = searchParams.get("description");
     const typeParam = searchParams.get("type");
+    const proposalIdParam = searchParams.get("proposalId");
 
     if (providerParam) setProvider(providerParam);
     if (amountParam && amountParam !== "0") setBudget(amountParam);
     if (descriptionParam) setDescription(descriptionParam);
     if (typeParam === "physical") setEscrowType("physical");
-  }, [searchParams]);
+
+    if (proposalIdParam) {
+      setProposalId(proposalIdParam);
+      // Fetch proposal details
+      fetch(`/api/proposals?address=${address}`)
+        .then(res => res.json())
+        .then(data => {
+          const prop = data.proposals?.find((p: any) => p.id === proposalIdParam);
+          if (prop) {
+            setProvider(prop.seller_address);
+            setBudget(prop.budget.toString());
+            setDescription(prop.description);
+            setHours(prop.hours.toString());
+            setEscrowType(prop.escrow_type);
+            setQrCodeWord(prop.qr_code_word || "");
+            setCreatorRole("buyer"); // Buyer resolves proposals
+          }
+        })
+        .catch(console.error);
+    }
+  }, [searchParams, address]);
 
   // Poll on-chain budget when waiting for seller (Step 2)
   useEffect(() => {
@@ -115,14 +198,47 @@ function CreateEscrowContent() {
       return;
     }
 
-    // Validate provider is a proper 0x address
+    // Validate wallet address
     if (!/^0x[a-fA-F0-9]{40}$/.test(provider)) {
-      setProviderError("Provider must be a valid wallet address (0x...). Ask the seller for their wallet address.");
+      setProviderError(`${creatorRole === "seller" ? "Buyer" : "Provider"} must be a valid wallet address (0x...).`);
       return;
     }
     setProviderError(null);
 
     setIsTxPending(true);
+
+    // If role is seller, save off-chain proposal instead of calling on-chain transaction
+    if (creatorRole === "seller") {
+      try {
+        const res = await fetch("/api/proposals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            buyerAddress: provider, // In seller mode, "provider" input is the Buyer
+            sellerAddress: address,
+            description,
+            budget,
+            hours,
+            escrowType,
+            qrCodeWord
+          })
+        });
+
+        if (res.ok) {
+          alert("Escrow Proposal sent to buyer successfully!");
+          router.push("/escrow/board");
+        } else {
+          const err = await res.json();
+          alert(err.error || "Failed to submit proposal");
+        }
+      } catch (err: any) {
+        alert("Error sending proposal: " + err.message);
+      } finally {
+        setIsTxPending(false);
+      }
+      return;
+    }
+
     try {
       const expiredAt = BigInt(Math.floor(Date.now() / 1000) + parseInt(hours) * 3600);
       const budgetUSDC = parseUnits(budget, 6);
@@ -155,6 +271,17 @@ function CreateEscrowContent() {
       // Track this job ID in localStorage so it shows on the escrow list
       trackJobId(Number(createdJobId));
       setJobType(Number(createdJobId), escrowType);
+
+      // Mark the proposal as accepted if resolving a seller's proposal
+      if (proposalId) {
+        try {
+          await fetch("/api/proposals", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ proposalId, status: "accepted" })
+          });
+        } catch (e) {}
+      }
 
       // If physical escrow and QR word is set, upload the QR code hash
       if (escrowType === "physical" && qrCodeWord) {
@@ -217,8 +344,19 @@ function CreateEscrowContent() {
               source: "web"
             });
             console.log("Proposed budget saved to Supabase.");
+
+            // Send notification to the provider (seller)
+            await supabase.from("notifications").insert({
+              recipient_address: provider.toLowerCase(),
+              type: "COUNTER_OFFER",
+              escrow_id: Number(createdJobId),
+              message: `A new escrow contract (JOB #${createdJobId}) has been created for you by client ${address?.slice(0, 8)}...${address?.slice(-4)}. Please review the budget.`,
+              read: false,
+              metadata: { client: address, budget }
+            });
+            console.log("Creation notification sent to provider.");
           } catch (dbErr) {
-            console.error("Failed to save proposed budget to Supabase:", dbErr);
+            console.error("Failed to save proposed budget or send notification to Supabase:", dbErr);
           }
         }
         
@@ -339,6 +477,68 @@ function CreateEscrowContent() {
         {step === 1 && (
           <form onSubmit={handleCreateJob} style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
             
+            {/* Role Selection Toggle */}
+            <div>
+              <label>I am the:</label>
+              <div className="create-form-row" style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
+                <button
+                  type="button"
+                  className={creatorRole === "buyer" ? "btn-primary" : "btn-secondary"}
+                  onClick={() => setCreatorRole("buyer")}
+                  style={{ flex: 1, padding: "8px", fontSize: "0.85rem" }}
+                >
+                  Buyer (Hiring / Funding)
+                </button>
+                <button
+                  type="button"
+                  className={creatorRole === "seller" ? "btn-primary" : "btn-secondary"}
+                  onClick={() => setCreatorRole("seller")}
+                  style={{ flex: 1, padding: "8px", fontSize: "0.85rem" }}
+                >
+                  Seller (Service Provider)
+                </button>
+              </div>
+            </div>
+
+            {/* Templates Selector */}
+            {templates.length > 0 && (
+              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "10px", padding: "12px 14px" }}>
+                <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 600, display: "block", marginBottom: "8px" }}>
+                  📂 Quick Templates
+                </span>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  {templates.map(t => (
+                    <div
+                      key={t.id}
+                      onClick={() => applyTemplate(t)}
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: "8px",
+                        padding: "6px 12px",
+                        fontSize: "0.76rem",
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        color: "var(--text-primary)",
+                      }}
+                      onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+                      onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+                    >
+                      <span>{t.name}</span>
+                      <button
+                        onClick={(e) => deleteTemplate(t.id, e)}
+                        style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0, fontSize: "0.8rem", display: "flex" }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Escrow Type Selection */}
             <div>
               <label>Escrow Type</label>
@@ -364,7 +564,9 @@ function CreateEscrowContent() {
 
             {/* Inputs */}
             <div>
-              <label htmlFor="provider">Seller / Provider Address</label>
+              <label htmlFor="provider">
+                {creatorRole === "seller" ? "Buyer / client Address *" : "Seller / Provider Address *"}
+              </label>
               <input
                 id="provider"
                 type="text"
@@ -446,7 +648,21 @@ function CreateEscrowContent() {
             )}
 
             <div>
-              <label htmlFor="description">Task Details & Specifications</label>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                <label htmlFor="description" style={{ margin: 0 }}>Task Details & Specifications</label>
+                <button
+                  type="button"
+                  onClick={analyzeDescription}
+                  disabled={aiLoading || !description.trim()}
+                  style={{
+                    background: "none", border: "none", color: "var(--primary)",
+                    fontSize: "0.78rem", cursor: "pointer", display: "flex",
+                    alignItems: "center", gap: "4px", padding: 0
+                  }}
+                >
+                  {aiLoading ? "Analyzing..." : "✨ AI Analyze Description"}
+                </button>
+              </div>
               <textarea
                 id="description"
                 rows={3}
@@ -455,6 +671,32 @@ function CreateEscrowContent() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
+
+              {/* AI summary preview */}
+              {aiSummary && (
+                <div style={{
+                  marginTop: "12px",
+                  background: "rgba(99,102,241,0.04)",
+                  border: "1px solid rgba(99,102,241,0.15)",
+                  borderRadius: "10px",
+                  padding: "12px",
+                }}>
+                  <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "#818cf8", display: "block", marginBottom: "4px" }}>
+                    ✨ AI Proposed Specifications
+                  </span>
+                  <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                    {aiSummary.plainSummary}
+                  </p>
+                  {aiSummary.priceRange && (aiSummary.priceRange.min || aiSummary.priceRange.max) && (
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "6px", display: "flex", gap: "10px" }}>
+                      <span>💡 Suggested budget: {aiSummary.priceRange.min ?? "?"} - {aiSummary.priceRange.max ?? "?"} USDC</span>
+                      {aiSummary.estimatedDuration && (
+                        <span>⏱ Est. Time: {aiSummary.estimatedDuration}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {!isConnected ? (
@@ -462,9 +704,21 @@ function CreateEscrowContent() {
                 Please connect your wallet at the top of the page.
               </div>
             ) : (
-              <button type="submit" className="btn-primary" disabled={isTxPending} style={{ width: "100%", justifyContent: "center" }}>
-                {isTxPending ? "Deploying contract..." : "Lock Escrow Onchain"}
-              </button>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <button type="submit" className="btn-primary" disabled={isTxPending} style={{ justifyContent: "center" }}>
+                  {isTxPending 
+                    ? (creatorRole === "seller" ? "Sending Proposal..." : "Deploying...") 
+                    : (creatorRole === "seller" ? "Send Escrow Proposal" : "Lock Escrow Onchain")}
+                </button>
+                <button
+                  type="button"
+                  onClick={saveTemplate}
+                  className="btn-secondary"
+                  style={{ justifyContent: "center" }}
+                >
+                  Save as Template
+                </button>
+              </div>
             )}
           </form>
         )}

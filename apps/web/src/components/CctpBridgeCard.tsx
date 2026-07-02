@@ -87,6 +87,53 @@ function StepTracker({ current }: { current: BridgeStep }) {
 
 // ─── Chain Selector ───────────────────────────────────────────────────────────
 
+export function ChainIcon({ chainKey, size = 16 }: { chainKey: string; size?: number }) {
+  if (chainKey === "eth-sepolia") {
+    return (
+      <svg viewBox="0 0 784 1277" width={size} height={size} style={{ flexShrink: 0 }}>
+        <path d="M392 0L383.5 28.5V870.5L392 879L784 648L392 0Z" fill="#a4b3f6"/>
+        <path d="M392 0L0 648L392 879V470V0Z" fill="#758bfd"/>
+        <path d="M392 956L387 962V1271.5L392 1277L784 726L392 956Z" fill="#a4b3f6"/>
+        <path d="M392 1277V956L0 726L392 1277Z" fill="#758bfd"/>
+        <path d="M392 879L784 648L392 531.5V879Z" fill="#3f5efb"/>
+        <path d="M0 648L392 879V531.5L0 648Z" fill="#5c7aff"/>
+      </svg>
+    );
+  }
+  if (chainKey === "base-sepolia") {
+    return (
+      <svg viewBox="0 0 240 240" width={size} height={size} style={{ flexShrink: 0 }}>
+        <circle cx="120" cy="120" r="110" fill="#0052FF"/>
+        <circle cx="120" cy="120" r="70" stroke="#fff" strokeWidth="22" fill="none"/>
+        <path d="M120 50h80" stroke="#fff" strokeWidth="22" strokeLinecap="round"/>
+      </svg>
+    );
+  }
+  if (chainKey === "avax-fuji") {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} style={{ flexShrink: 0 }}>
+        <path d="M12 2L1.5 20h21L12 2zm0 4L18.5 17h-13L12 6z" fill="#e84142" />
+      </svg>
+    );
+  }
+  if (chainKey === "arbitrum-sepolia") {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} style={{ flexShrink: 0 }}>
+        <path d="M12 2.5L2 19.5h20L12 2.5zm0 5.2l5.7 9.8H6.3L12 7.7z" fill="#28A0F0" />
+      </svg>
+    );
+  }
+  if (chainKey === "arc-testnet") {
+    return (
+      <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="#f59e0b" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+        <path d="M3 20A9 9 0 0112 11A9 9 0 0121 20" />
+        <circle cx="12" cy="7" r="1.5" fill="#f59e0b" />
+      </svg>
+    );
+  }
+  return null;
+}
+
 function ChainSelect({ label, value, onChange, exclude }: {
   label: string;
   value: string;
@@ -96,20 +143,32 @@ function ChainSelect({ label, value, onChange, exclude }: {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
       <label style={{ fontSize: "0.75rem", color: "var(--text-muted,#888)", fontWeight: 600 }}>{label}</label>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        style={{
-          padding: "10px 12px", borderRadius: "10px",
-          background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-          color: "#e2e8f0", fontSize: "0.85rem", cursor: "pointer", outline: "none",
-          appearance: "none", WebkitAppearance: "none",
-        }}
-      >
-        {CCTP_CHAIN_KEYS.filter(k => k !== exclude).map(key => (
-          <option key={key} value={key}>{CCTP_CHAINS[key].emoji} {CCTP_CHAINS[key].shortName}</option>
-        ))}
-      </select>
+      <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+        <div style={{ position: "absolute", left: "12px", display: "flex", alignItems: "center", pointerEvents: "none" }}>
+          <ChainIcon chainKey={value} size={16} />
+        </div>
+        <select
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "10px 24px 10px 36px",
+            borderRadius: "10px",
+            background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+            color: "#e2e8f0", fontSize: "0.85rem", cursor: "pointer", outline: "none",
+            appearance: "none", WebkitAppearance: "none",
+          }}
+        >
+          {CCTP_CHAIN_KEYS.filter(k => k !== exclude).map(key => (
+            <option key={key} value={key} style={{ background: "#0d0d0d", color: "#fff" }}>
+              {CCTP_CHAINS[key].emoji} {CCTP_CHAINS[key].shortName}
+            </option>
+          ))}
+        </select>
+        <div style={{ position: "absolute", right: "12px", pointerEvents: "none", fontSize: "0.7rem", color: "var(--text-muted,#888)" }}>
+          ▼
+        </div>
+      </div>
     </div>
   );
 }
@@ -118,14 +177,29 @@ function ChainSelect({ label, value, onChange, exclude }: {
 
 interface Props {
   onBack?: () => void;
+  circleWalletAddress?: string;
+  executeContractCall?: (params: {
+    contractAddress: string;
+    abiFunctionSignature: string;
+    abiParameters: { type: string; value: string }[];
+    amount?: string;
+  }) => Promise<string>;
 }
 
-export function CctpBridgeCard({ onBack }: Props) {
+export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCall }: Props) {
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
 
+  const [bridgeToCircleWallet, setBridgeToCircleWallet] = useState(!!circleWalletAddress);
   const [srcKey, setSrcKey]   = useState("eth-sepolia");
   const [dstKey, setDstKey]   = useState("base-sepolia");
+
+  useEffect(() => {
+    if (circleWalletAddress) {
+      setBridgeToCircleWallet(true);
+    }
+  }, [circleWalletAddress]);
+
   const [amount, setAmount]   = useState("");
   const [step, setStep]       = useState<BridgeStep>("idle");
   const [statusMsg, setStatusMsg] = useState("");
@@ -133,8 +207,12 @@ export function CctpBridgeCard({ onBack }: Props) {
   const [burnTxHash, setBurnTxHash] = useState<`0x${string}` | null>(null);
   const [dstTxHash, setDstTxHash]   = useState<`0x${string}` | null>(null);
 
+  const [srcBalance, setSrcBalance] = useState<string>("0.00");
+  const [dstBalance, setDstBalance] = useState<string>("0.00");
+  const [loadingBalances, setLoadingBalances] = useState<boolean>(false);
+
   const srcChain = CCTP_CHAINS[srcKey];
-  const dstChain = CCTP_CHAINS[dstKey];
+  const dstChain = CCTP_CHAINS[bridgeToCircleWallet ? "arc-testnet" : dstKey];
 
   // Connect to MetaMask / injected wallet
   const connectWallet = useCallback(async () => {
@@ -192,6 +270,60 @@ export function CctpBridgeCard({ onBack }: Props) {
     };
   }, []);
 
+  // ── Fetch USDC balances for each chain ──────────────────────────────────────
+  const fetchBalances = useCallback(async () => {
+    if (!address) return;
+    setLoadingBalances(true);
+    try {
+      // 1. Fetch Source Balance
+      const publicClientSrc = createPublicClient({
+        chain: {
+          id: srcChain.id,
+          name: srcChain.name,
+          nativeCurrency: srcChain.nativeCurrency || { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: [srcChain.rpcUrl] } },
+        } as any,
+        transport: http(srcChain.rpcUrl),
+      });
+      const balSrc = await publicClientSrc.readContract({
+        address: srcChain.usdc,
+        abi: USDC_ABI,
+        functionName: "balanceOf",
+        args: [address],
+      });
+      setSrcBalance(parseFloat(formatUnits(balSrc as bigint, 6)).toFixed(2));
+
+      // 2. Fetch Destination Balance
+      const targetDestAddress = bridgeToCircleWallet ? circleWalletAddress : address;
+      if (targetDestAddress) {
+        const publicClientDst = createPublicClient({
+          chain: {
+            id: dstChain.id,
+            name: dstChain.name,
+            nativeCurrency: dstChain.nativeCurrency || { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+          } as any,
+          transport: http(dstChain.rpcUrl),
+        });
+        const balDst = await publicClientDst.readContract({
+          address: dstChain.usdc,
+          abi: USDC_ABI,
+          functionName: "balanceOf",
+          args: [targetDestAddress as `0x${string}`],
+        });
+        setDstBalance(parseFloat(formatUnits(balDst as bigint, 6)).toFixed(2));
+      }
+    } catch (e) {
+      console.warn("Error fetching bridge balances:", e);
+    } finally {
+      setLoadingBalances(false);
+    }
+  }, [address, srcChain, dstChain, bridgeToCircleWallet, circleWalletAddress]);
+
+  useEffect(() => {
+    fetchBalances();
+  }, [fetchBalances]);
+
   // Helper to switch chains
   const switchChain = useCallback(async (targetChainId: number) => {
     if (typeof window === "undefined" || !(window as any).ethereum) return;
@@ -206,13 +338,14 @@ export function CctpBridgeCard({ onBack }: Props) {
       if (err.code === 4902) {
         const targetChain = Object.values(CCTP_CHAINS).find(c => c.id === targetChainId);
         if (targetChain) {
+          const nativeCurrency = targetChain.nativeCurrency || { name: "Ether", symbol: "ETH", decimals: 18 };
           await provider.request({
             method: "wallet_addEthereumChain",
             params: [
               {
                 chainId: `0x${targetChainId.toString(16)}`,
                 chainName: targetChain.name,
-                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+                nativeCurrency,
                 rpcUrls: [targetChain.rpcUrl],
                 blockExplorerUrls: [targetChain.explorerUrl],
               },
@@ -296,7 +429,8 @@ export function CctpBridgeCard({ onBack }: Props) {
       setStep("burning");
       setStatusMsg("Burning USDC on source chain via Circle CCTP…");
 
-      const mintRecipient = addressToBytes32(address) as `0x${string}`;
+      const targetRecipient = (bridgeToCircleWallet && circleWalletAddress) ? circleWalletAddress : address;
+      const mintRecipient = addressToBytes32(targetRecipient as `0x${string}`) as `0x${string}`;
       const ZERO_BYTES32  = `0x${"0".repeat(64)}` as `0x${string}`;
 
       const burnHash = await (walletClientSrc as any).writeContract({
@@ -337,51 +471,77 @@ export function CctpBridgeCard({ onBack }: Props) {
 
       // ── Step 4: Mint ───────────────────────────────────────────────────
       setStep("minting");
-      setStatusMsg("Switching to destination chain to mint USDC…");
 
-      // We must switch to the destination chain before creating the wallet client for the destination
-      await switchChain(dstChain.id);
+      if (bridgeToCircleWallet && dstChain.id === 5042002 && executeContractCall) {
+        setStatusMsg("Minting USDC directly to your Circle Wallet on Arc Testnet. Please approve the PIN prompt…");
+        const mintHash = await executeContractCall({
+          contractAddress: dstChain.messageTransmitter,
+          abiFunctionSignature: "receiveMessage(bytes,bytes)",
+          abiParameters: [
+            { type: "bytes", value: messageBytes },
+            { type: "bytes", value: attestation },
+          ],
+        });
+        setDstTxHash(mintHash as `0x${string}`);
+      } else {
+        setStatusMsg("Switching to destination chain to mint USDC…");
+        // We must switch to the destination chain before creating the wallet client for the destination
+        await switchChain(dstChain.id);
 
-      const walletClientDst = createWalletClient({
-        account: address,
-        chain: {
-          id: dstChain.id,
-          name: dstChain.name,
-          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: { default: { http: [dstChain.rpcUrl] } },
-        } as any,
-        transport: custom(provider),
-      });
+        const walletClientDst = createWalletClient({
+          account: address,
+          chain: {
+            id: dstChain.id,
+            name: dstChain.name,
+            nativeCurrency: dstChain.nativeCurrency || { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+          } as any,
+          transport: custom(provider),
+        });
 
-      const publicClientDst = createPublicClient({
-        chain: {
-          id: dstChain.id,
-          name: dstChain.name,
-          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: { default: { http: [dstChain.rpcUrl] } },
-        } as any,
-        transport: http(dstChain.rpcUrl),
-      });
+        const publicClientDst = createPublicClient({
+          chain: {
+            id: dstChain.id,
+            name: dstChain.name,
+            nativeCurrency: dstChain.nativeCurrency || { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+          } as any,
+          transport: http(dstChain.rpcUrl),
+        });
 
-      setStatusMsg("Minting USDC on destination chain…");
-      const mintHash = await (walletClientDst as any).writeContract({
-        address: dstChain.messageTransmitter,
-        abi: MESSAGE_TRANSMITTER_ABI,
-        functionName: "receiveMessage",
-        args: [messageBytes, attestation as `0x${string}`],
-      });
-      setDstTxHash(mintHash);
+        setStatusMsg("Minting USDC on destination chain…");
+        const mintHash = await (walletClientDst as any).writeContract({
+          address: dstChain.messageTransmitter,
+          abi: MESSAGE_TRANSMITTER_ABI,
+          functionName: "receiveMessage",
+          args: [messageBytes, attestation as `0x${string}`],
+        });
+        setDstTxHash(mintHash);
 
-      await waitForReceipt(publicClientDst, mintHash);
+        await waitForReceipt(publicClientDst, mintHash);
+      }
 
       setStep("done");
       setStatusMsg("");
+      fetchBalances();
     } catch (err: any) {
       console.error("[CCTP Bridge]", err);
       setStep("error");
       setErrorMsg(err.shortMessage || err.message || "Bridge failed. Please try again.");
     }
-  }, [address, amount, chainId, srcChain, dstChain, pollAttestation, switchChain]);
+  }, [
+    address,
+    amount,
+    chainId,
+    srcChain,
+    dstChain,
+    pollAttestation,
+    switchChain,
+    bridgeToCircleWallet,
+    circleWalletAddress,
+    executeContractCall,
+    fetchBalances,
+  ]);
 
   const reset = () => {
     setStep("idle"); setStatusMsg(""); setErrorMsg(""); setBurnTxHash(null); setDstTxHash(null); setAmount("");
@@ -417,6 +577,17 @@ export function CctpBridgeCard({ onBack }: Props) {
         )}
       </div>
 
+      {address && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", borderRadius: "8px", background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.08)", fontSize: "0.75rem", color: "var(--text-muted,#888)"
+        }}>
+          <span>MetaMask Connected:</span>
+          <strong style={{ color: "#e2e8f0" }}>{address.slice(0, 6)}...{address.slice(-4)}</strong>
+        </div>
+      )}
+
       {/* Wallet not connected */}
       {!address && (
         <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -442,13 +613,82 @@ export function CctpBridgeCard({ onBack }: Props) {
 
       {step === "idle" && address && (
         <>
+          {circleWalletAddress && (
+            <div style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              padding: "12px",
+              background: "rgba(99,102,241,0.06)",
+              border: "1px solid rgba(99,102,241,0.15)",
+              borderRadius: "10px",
+              marginBottom: "8px"
+            }}>
+              <div 
+                onClick={() => {
+                  const nextVal = !bridgeToCircleWallet;
+                  setBridgeToCircleWallet(nextVal);
+                  if (nextVal) {
+                    setDstKey("arc-testnet");
+                  } else {
+                    setDstKey("base-sepolia");
+                  }
+                }}
+                style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}
+              >
+                <div style={{
+                  width: "18px", height: "18px", borderRadius: "4px",
+                  border: "2px solid rgba(255,255,255,0.2)",
+                  background: bridgeToCircleWallet ? "#818cf8" : "rgba(255,255,255,0.04)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "all 0.2s", flexShrink: 0
+                }}>
+                  {bridgeToCircleWallet && (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </div>
+                <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Deposit directly to my Circle Wallet</span>
+              </div>
+              <div style={{ fontSize: "0.72rem", color: "var(--text-muted, #888)", marginLeft: "28px", wordBreak: "break-all" }}>
+                Recipient: <strong style={{ color: "#818cf8" }}>{circleWalletAddress}</strong> (Arc Testnet)
+              </div>
+            </div>
+          )}
+
           {/* Chain selectors */}
           <div style={{ display: "flex", gap: "12px", alignItems: "flex-end" }}>
-            <ChainSelect label="FROM" value={srcKey} onChange={setSrcKey} exclude={dstKey} />
-            <div style={{ paddingBottom: "28px", color: "var(--text-muted,#888)" }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
+              <ChainSelect label="FROM" value={srcKey} onChange={setSrcKey} exclude={bridgeToCircleWallet ? "arc-testnet" : dstKey} />
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted,#888)", marginLeft: "4px" }}>
+                {loadingBalances ? "Loading balance..." : `Balance: ${srcBalance} USDC`}
+              </span>
+            </div>
+
+            <div style={{ paddingBottom: "36px", color: "var(--text-muted,#888)" }}>
               <ArrowRight size={18} />
             </div>
-            <ChainSelect label="TO" value={dstKey} onChange={setDstKey} exclude={srcKey} />
+
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
+              {bridgeToCircleWallet ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label style={{ fontSize: "0.75rem", color: "var(--text-muted,#888)", fontWeight: 600 }}>TO</label>
+                  <div style={{
+                    padding: "10px 12px", borderRadius: "10px",
+                    background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.2)",
+                    color: "#f59e0b", fontSize: "0.85rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "6px"
+                  }}>
+                    <ChainIcon chainKey="arc-testnet" size={16} /> Arc Testnet
+                  </div>
+                </div>
+              ) : (
+                <ChainSelect label="TO" value={dstKey} onChange={setDstKey} exclude={srcKey} />
+              )}
+              <span style={{ fontSize: "0.72rem", color: "var(--text-muted,#888)", marginLeft: "4px" }}>
+                {loadingBalances ? "Loading balance..." : `Balance: ${dstBalance} USDC`}
+              </span>
+            </div>
           </div>
 
           {/* Amount input */}

@@ -61,6 +61,9 @@ interface CircleWalletContextValue {
   /** Refresh wallet info from Circle */
   refreshWallet: () => Promise<void>;
 
+  /** Directly execute a Circle challenge by ID (shows PIN popup) */
+  executeChallenge: (challengeId: string) => Promise<any>;
+
   /** Log in or sign up using an email address */
   loginWithEmail: (email: string) => Promise<void>;
 
@@ -410,6 +413,7 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
         errorMessage,
         setupWallet,
         executeContractCall,
+        executeChallenge,
         transferOut,
         refreshWallet,
         loginWithEmail,

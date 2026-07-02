@@ -18,6 +18,11 @@ export interface CctpChain {
   usdc: `0x${string}`;
   color: string;
   emoji: string;
+  nativeCurrency?: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
 }
 
 // ─── Supported CCTP Testnet Chains ───────────────────────────────────────────
@@ -74,6 +79,20 @@ export const CCTP_CHAINS: Record<string, CctpChain> = {
     usdc:              "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
     color: "#28A0F0",
     emoji: "🌀",
+  },
+  "arc-testnet": {
+    id: 5042002,
+    name: "Arc Testnet",
+    shortName: "Arc Testnet",
+    domainId: 26,
+    rpcUrl: "https://rpc.testnet.arc.network",
+    explorerUrl: "https://testnet.arcscan.app",
+    tokenMessenger:    "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA",
+    messageTransmitter:"0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275",
+    usdc:              "0x3600000000000000000000000000000000000000",
+    color: "#f59e0b",
+    emoji: "🏹",
+    nativeCurrency: { name: "USD Coin", symbol: "USDC", decimals: 18 },
   },
 };
 
