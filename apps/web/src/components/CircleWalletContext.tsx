@@ -344,7 +344,7 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
 
     // Poll for the on-chain transaction hash from Circle status
     if (data.txId) {
-      for (let i = 0; i < 15; i++) {
+      for (let i = 0; i < 40; i++) {
         try {
           await new Promise((resolve) => setTimeout(resolve, 1000));
           const txRes = await fetch(`/api/circle/transactions/${data.txId}?userToken=${encodeURIComponent(userToken)}`);

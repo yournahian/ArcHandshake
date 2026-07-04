@@ -12,13 +12,15 @@ import { useWallet } from "@/hooks/useWallet";
 import { useCircleWallet } from "@/components/CircleWalletContext";
 import { publicClient } from "@/lib/publicClient";
 import { waitForReceipt } from "@/lib/utils";
+import { ReviewModal } from "@/components/ReviewModal";
 
 export default function MeetupDetail() {
   const { id } = useParams();
   const router = useRouter();
   const { address, isConnected } = useWallet();
   const { executeContractCall } = useCircleWallet();
-  const jobId = BigInt(id as string);
+  const isNumeric = typeof id === "string" && /^\d+$/.test(id);
+  const jobId = isNumeric ? BigInt(id as string) : 0n;
 
   const [copied, setCopied] = useState(false);
   const [manualCode, setManualCode] = useState("");
@@ -35,6 +37,9 @@ export default function MeetupDetail() {
     return "laptop-received";
   });
   const [submission, setSubmission] = useState<{ fileUrl: string; fileName: string; status: string; result: string } | null>(null);
+  const [completedTxHash, setCompletedTxHash] = useState<string | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [hasReviewed, setHasReviewed] = useState(false);
 
   // Custom toast notification state and alert helper to replace native browser popups
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
@@ -70,6 +75,57 @@ export default function MeetupDetail() {
       setJobRaw(data);
     } catch (e) {}
   }, [jobId]);
+
+  const fetchCompletedTxHash = useCallback(async () => {
+    try {
+      const logs = await publicClient.getLogs({
+        address: DEPLOYED_ESCROW_ADDRESS,
+        event: {
+          type: "event",
+          name: "Completed",
+          inputs: [
+            { type: "uint256", name: "jobId", indexed: true },
+            { type: "bytes32", name: "reason" }
+          ]
+        },
+        args: {
+          jobId: jobId
+        },
+        fromBlock: 0n,
+        toBlock: "latest"
+      });
+      if (logs && logs.length > 0) {
+        return logs[0].transactionHash;
+      }
+    } catch (e) {
+      console.error("Failed to query Completed event logs:", e);
+    }
+    return null;
+  }, [jobId]);
+
+  const fetchReviewStatus = useCallback(async () => {
+    if (!address || !jobId) return;
+    const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!hasSupabase) return;
+    try {
+      const { data } = await supabase
+        .from("reviews")
+        .select("id")
+        .eq("escrow_id", Number(jobId))
+        .eq("reviewer_address", address.toLowerCase())
+        .maybeSingle();
+      if (data) {
+        setHasReviewed(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [address, jobId]);
+
+  useEffect(() => {
+    fetchReviewStatus();
+  }, [fetchReviewStatus]);
+
 
   useEffect(() => {
     refetch();
@@ -230,6 +286,19 @@ export default function MeetupDetail() {
   const budget = budgetRaw ? formatUnits(budgetRaw, 6) : "0";
   const isClient = address && client ? address.toLowerCase() === client.toLowerCase() : false;
   const isProvider = address && provider ? address.toLowerCase() === provider.toLowerCase() : false;
+
+  useEffect(() => {
+    if (status === 3) {
+      fetchCompletedTxHash().then(hash => {
+        if (hash) {
+          setCompletedTxHash(hash);
+          try {
+            localStorage.setItem(`arc_completed_tx_${jobId}`, hash);
+          } catch (e) {}
+        }
+      });
+    }
+  }, [status, fetchCompletedTxHash, jobId]);
 
 
   const handleCopyCode = () => {
@@ -464,9 +533,11 @@ export default function MeetupDetail() {
             {/* Transaction Hash */}
             {(() => {
               const getTransactionHash = () => {
+                if (completedTxHash && completedTxHash !== "0x") return completedTxHash;
+
                 try {
                   const savedTx = localStorage.getItem(`arc_completed_tx_${jobId}`);
-                  if (savedTx) return savedTx;
+                  if (savedTx && savedTx !== "0x") return savedTx;
                 } catch (e) {}
 
                 if (submission && submission.result) {
@@ -498,6 +569,35 @@ export default function MeetupDetail() {
                 </div>
               );
             })()}
+
+            {/* Leave Review Card */}
+            <div style={{
+              background: "rgba(16, 185, 129, 0.04)",
+              border: "1px solid rgba(16, 185, 129, 0.15)",
+              borderRadius: "12px",
+              padding: "20px",
+              width: "100%",
+              boxSizing: "border-box",
+              marginBottom: "12px",
+              textAlign: "center"
+            }}>
+              <span style={{ fontSize: "1.1rem" }}>🌟</span>
+              <p style={{ margin: "6px 0 12px", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                {hasReviewed 
+                  ? "You have already reviewed this transaction. Thank you!" 
+                  : "This escrow is completed. Leave a review for the counterparty to build their reputation score."
+                }
+              </p>
+              {!hasReviewed && (
+                <button
+                  onClick={() => setShowReviewModal(true)}
+                  className="btn-primary"
+                  style={{ width: "100%", padding: "8px 16px", fontSize: "0.82rem", margin: "0 auto" }}
+                >
+                  Leave a Review
+                </button>
+              )}
+            </div>
 
             <button onClick={() => router.push("/")} className="btn-secondary" style={{ width: "100%" }}>
               Back to Dashboard
@@ -640,6 +740,19 @@ export default function MeetupDetail() {
           {toast.type === "error" ? <AlertCircle size={20} /> : <ShieldCheck size={20} />}
           <span>{toast.message}</span>
         </div>
+      )}
+
+      {showReviewModal && (
+        <ReviewModal
+          escrowId={Number(jobId)}
+          revieweeAddress={isClient ? provider : client}
+          revieweeName={isClient ? "Seller" : "Buyer"}
+          onClose={() => setShowReviewModal(false)}
+          onSubmitted={() => {
+            setHasReviewed(true);
+            setShowReviewModal(false);
+          }}
+        />
       )}
 
     </div>

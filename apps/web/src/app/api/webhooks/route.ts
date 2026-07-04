@@ -58,7 +58,7 @@ export async function DELETE(req: NextRequest) {
 }
 
 /* ─── Helper: fire a webhook ────────────────────────────────────────────────── */
-export async function fireWebhook(
+async function fireWebhook(
   recipientAddress: string,
   eventType: string,
   payload: Record<string, any>

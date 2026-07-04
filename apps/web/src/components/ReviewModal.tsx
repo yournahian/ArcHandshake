@@ -173,7 +173,7 @@ export function ReviewModal({
                 borderRadius: "10px",
                 border: "none",
                 background: rating < 1 ? "rgba(255,255,255,0.06)" : "hsl(var(--primary))",
-                color: rating < 1 ? "#6b7280" : "#fff",
+                color: rating < 1 ? "#6b7280" : "hsl(var(--primary-foreground))",
                 fontWeight: 700,
                 fontSize: "0.88rem",
                 cursor: rating < 1 ? "not-allowed" : "pointer",

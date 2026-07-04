@@ -48,7 +48,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Missing abiFunctionSignature" }, { status: 400 });
       }
       requestBody.abiFunctionSignature = abiFunctionSignature;
-      requestBody.abiParameters = abiParameters;
+      requestBody.abiParameters = abiParameters.map((p: any) => {
+        if (p && typeof p === "object" && "value" in p) {
+          return p.value;
+        }
+        return p;
+      });
     }
 
     const res = await fetch(`${CIRCLE_API_BASE}/user/transactions/contractExecution`, {

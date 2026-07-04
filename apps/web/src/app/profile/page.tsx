@@ -7,7 +7,8 @@ import { escrowAbi, DEPLOYED_ESCROW_ADDRESS } from "@/lib/contracts";
 import {
   User, Wallet, Landmark, ShieldCheck, History,
   TrendingUp, Award, Layers, ArrowUpRight, ArrowDownLeft,
-  Activity, Settings, Plus, RefreshCw, Calendar, ExternalLink
+  Activity, Settings, Plus, RefreshCw, Calendar, ExternalLink,
+  ChevronLeft, ChevronRight
 } from "lucide-react";
 import { useWallet } from "@/hooks/useWallet";
 import { useCircleWallet } from "@/components/CircleWalletContext";
@@ -57,8 +58,10 @@ export default function ProfilePage() {
   const [loadingEscrows, setLoadingEscrows] = useState(false);
   const [balanceUSDC, setBalanceUSDC] = useState("0.00");
   const [allBalances, setAllBalances] = useState<any[]>([]);
+  const [activeTokenIdx, setActiveTokenIdx] = useState(0);
   const [circleTransactions, setCircleTransactions] = useState<any[]>([]);
   const [savedSwaps, setSavedSwaps] = useState<Record<string, any>>({});
+  const [savedEscrows, setSavedEscrows] = useState<Record<string, any>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadingTx, setLoadingTx] = useState(false);
 
@@ -392,13 +395,17 @@ export default function ProfilePage() {
     }
   }, [mounted, wallet?.id, userToken, fetchCircleData]);
 
-  // Load saved swaps from localStorage to resolve swap amounts and symbols
+  // Load saved swaps & escrows from localStorage to resolve amounts and symbols
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("arc_saved_swaps");
-        if (saved) {
-          setSavedSwaps(JSON.parse(saved));
+        const savedSwapsRaw = localStorage.getItem("arc_saved_swaps");
+        if (savedSwapsRaw) {
+          setSavedSwaps(JSON.parse(savedSwapsRaw));
+        }
+        const savedEscrowsRaw = localStorage.getItem("arc_saved_escrows");
+        if (savedEscrowsRaw) {
+          setSavedEscrows(JSON.parse(savedEscrowsRaw));
         }
       } catch (err) {}
     }
@@ -618,26 +625,54 @@ export default function ProfilePage() {
 
       {/* Stats Grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
-        {/* Wallet Balance Card - Shows All Coins */}
+        {/* Wallet Balance Card - Shows All Coins with Slider */}
         <div className="glass-card" style={{ padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "100%" }}>
-            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Wallet Balance</span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "100%", overflow: "hidden" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>Wallet Balance</span>
+              {allBalances.length > 1 && (
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <button
+                    onClick={() => setActiveTokenIdx(prev => (prev === 0 ? allBalances.length - 1 : prev - 1))}
+                    style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "var(--text-primary)", borderRadius: "4px", padding: "2px 6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    title="Previous Token"
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <span style={{ fontSize: "0.7rem", color: "var(--text-secondary)", fontWeight: 600 }}>
+                    {activeTokenIdx + 1}/{allBalances.length}
+                  </span>
+                  <button
+                    onClick={() => setActiveTokenIdx(prev => (prev === allBalances.length - 1 ? 0 : prev + 1))}
+                    style={{ background: "rgba(255,255,255,0.06)", border: "none", color: "var(--text-primary)", borderRadius: "4px", padding: "2px 6px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    title="Next Token"
+                  >
+                    <ChevronRight size={12} />
+                  </button>
+                </div>
+              )}
+            </div>
+
             {allBalances.length === 0 ? (
-              <div style={{ fontSize: "1.6rem", fontWeight: 800, marginTop: "4px", fontFamily: "Space Grotesk" }}>
-                0.00 <span style={{ fontSize: "0.85rem", color: "var(--primary)" }}>USDC</span>
+              <div style={{ fontSize: "1.8rem", fontWeight: 800, marginTop: "4px", fontFamily: "Space Grotesk" }}>
+                0.00 <span style={{ fontSize: "0.9rem", color: "var(--primary)", fontWeight: 700 }}>USDC</span>
               </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
-                {allBalances.map((bal, idx) => (
-                  <div key={idx} style={{ fontSize: "1.4rem", fontWeight: 800, fontFamily: "Space Grotesk", display: "flex", alignItems: "baseline", gap: "4px" }}>
-                    {parseFloat(bal.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
-                    <span style={{ fontSize: "0.75rem", color: "var(--primary)", fontWeight: 700 }}>{bal.token.symbol}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            ) : (() => {
+              const idx = activeTokenIdx >= allBalances.length ? 0 : activeTokenIdx;
+              const bal = allBalances[idx];
+              if (!bal) return null;
+              return (
+                <div 
+                  key={bal.token.symbol}
+                  style={{ fontSize: "1.8rem", fontWeight: 800, marginTop: "4px", fontFamily: "Space Grotesk", display: "flex", alignItems: "baseline", gap: "4px" }}
+                >
+                  {parseFloat(bal.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                  <span style={{ fontSize: "0.9rem", color: "var(--primary)", fontWeight: 700 }}>{bal.token.symbol}</span>
+                </div>
+              );
+            })()}
           </div>
-          <div style={{ background: "rgba(99,102,241,0.08)", width: "46px", height: "46px", borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ background: "rgba(99,102,241,0.08)", width: "46px", height: "46px", borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: "12px" }}>
             <Wallet size={20} style={{ color: "var(--primary)" }} />
           </div>
         </div>
@@ -731,15 +766,23 @@ export default function ProfilePage() {
                   const statusColor = tx.state === "COMPLETE" ? "#10b981" : tx.state === "FAILED" ? "#ef4444" : "#f59e0b";
                   const date = new Date(tx.updateDate || tx.createDate).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
                   
-                  // Check if there is local metadata for this swap transaction hash
+                  // Check if there is local metadata for this swap/escrow transaction hash
                   const txHashLower = tx.txHash?.toLowerCase();
                   const savedSwap = txHashLower ? savedSwaps[txHashLower] : null;
+                  const savedEscrow = txHashLower ? savedEscrows[txHashLower] : null;
 
                   let displayLabel = "";
                   let displayAmount = "";
                   let isNegative = false;
                   
-                  if (tx.isSwapTransaction) {
+                  if (savedEscrow) {
+                    const symbol = savedEscrow.symbol || "USDC";
+                    displayLabel = savedEscrow.type === "fund"
+                      ? `Fund Escrow #${savedEscrow.jobId}`
+                      : `Escrow Call #${savedEscrow.jobId}`;
+                    displayAmount = `${parseFloat(savedEscrow.amount).toFixed(2)} ${symbol}`;
+                    isNegative = savedEscrow.type === "fund" || tx.transactionType === "OUTBOUND";
+                  } else if (tx.isSwapTransaction) {
                     const inputSymbol = savedSwap?.inputSymbol || "USDC";
                     const outputSymbol = savedSwap?.outputSymbol || "EURC";
                     displayLabel = `Swap ${inputSymbol} to ${outputSymbol}`;

@@ -66,7 +66,19 @@ export function NotificationBell() {
   const handleClick = async (n: Notification) => {
     await markAsRead(n.id);
     setOpen(false);
-    if (n.escrow_id) router.push(`/escrow/${n.escrow_id}`);
+
+    let meta = n.metadata;
+    if (typeof meta === "string") {
+      try {
+        meta = JSON.parse(meta);
+      } catch (e) {}
+    }
+
+    if (meta?.proposal_id) {
+      router.push(`/escrow/create?proposalId=${meta.proposal_id}`);
+    } else if (n.escrow_id) {
+      router.push(`/escrow/${n.escrow_id}`);
+    }
   };
 
   return (
@@ -232,9 +244,8 @@ export function NotificationBell() {
                       color: n.read ? "#9ca3af" : "#e2e8f0",
                       fontWeight: n.read ? 400 : 600,
                       lineHeight: 1.4,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
+                      wordBreak: "break-word",
+                      whiteSpace: "normal",
                     }}>
                       {n.message}
                     </p>

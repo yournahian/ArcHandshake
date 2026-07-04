@@ -28,6 +28,8 @@ interface OpenListing {
   contact_info: string;
   status: string;
   created_at: string;
+  creator_role?: string;
+  listing_type?: string;
 }
 
 export default function EscrowBoardPage() {

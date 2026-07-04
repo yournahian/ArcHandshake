@@ -421,6 +421,21 @@ function CreateEscrowContent() {
         throw new Error("USDC Funding transaction reverted onchain!");
       }
 
+      // Save escrow funding transaction to localStorage to show real amounts in profile transaction logs
+      try {
+        const savedRaw = localStorage.getItem("arc_saved_escrows") || "{}";
+        const saved = JSON.parse(savedRaw);
+        saved[fundTxHash.toLowerCase()] = {
+          amount: budget,
+          symbol: "USDC",
+          jobId: Number(jobId),
+          type: "fund"
+        };
+        localStorage.setItem("arc_saved_escrows", JSON.stringify(saved));
+      } catch (e) {
+        console.warn("Failed to cache funded escrow transaction:", e);
+      }
+
       setStep(5); // Complete!
 
 
@@ -633,7 +648,7 @@ function CreateEscrowContent() {
               </div>
             </div>
 
-            {escrowType === "physical" && (
+            {escrowType === "physical" && creatorRole === "buyer" && (
               <div>
                 <label htmlFor="qrCodeWord">Physical Meetup Release Word (e.g. "laptop-received")</label>
                 <input

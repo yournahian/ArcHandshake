@@ -122,6 +122,16 @@ export const USDC_ABI = [
     inputs:  [{ name: "account", type: "address" }],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    name: "allowance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner",   type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
 ] as const;
 
 export const TOKEN_MESSENGER_ABI = [
@@ -130,13 +140,22 @@ export const TOKEN_MESSENGER_ABI = [
     type: "function",
     stateMutability: "nonpayable",
     inputs: [
-      { name: "amount",             type: "uint256" },
-      { name: "destinationDomain",  type: "uint32"  },
-      { name: "mintRecipient",      type: "bytes32" },
-      { name: "burnToken",          type: "address" },
-      { name: "destinationCaller",  type: "bytes32" }, // bytes32(0) = anyone can relay
+      { name: "amount",                 type: "uint256" },
+      { name: "destinationDomain",      type: "uint32"  },
+      { name: "mintRecipient",          type: "bytes32" },
+      { name: "burnToken",              type: "address" },
+      { name: "destinationCaller",      type: "bytes32" },
+      { name: "maxFee",                 type: "uint256" },
+      { name: "minFinalityThreshold",   type: "uint32"  },
     ],
-    outputs: [{ name: "nonce", type: "uint64" }],
+    outputs: [],
+  },
+  {
+    name: "isSupportedDestinationDomain",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "domain", type: "uint32" }],
+    outputs: [{ name: "", type: "bool" }],
   },
 ] as const;
 

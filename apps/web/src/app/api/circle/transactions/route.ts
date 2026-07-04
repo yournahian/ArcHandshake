@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
           Authorization:  `Bearer ${CIRCLE_API_KEY}`,
           "X-User-Token": userToken,
         },
+        cache: "no-store",
       });
       if (balRes.ok) {
         const balData = await balRes.json();
@@ -51,6 +52,7 @@ export async function GET(req: NextRequest) {
           Authorization:  `Bearer ${CIRCLE_API_KEY}`,
           "X-User-Token": userToken,
         },
+        cache: "no-store",
       }
     );
 
@@ -66,6 +68,7 @@ export async function GET(req: NextRequest) {
             Authorization:  `Bearer ${CIRCLE_API_KEY}`,
             "X-User-Token": userToken,
           },
+          cache: "no-store",
         }
       );
       if (userRes.ok) {

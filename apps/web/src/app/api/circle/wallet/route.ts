@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
         Authorization:  `Bearer ${CIRCLE_API_KEY}`,
         "X-User-Token": userToken,
       },
+      cache: "no-store",
     });
 
     const data = await res.json();

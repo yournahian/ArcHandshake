@@ -105,7 +105,7 @@ export function CircleWalletProfile({ onClose }: CircleWalletProfileProps) {
 
   const blockchainLabel = wallet?.blockchain?.replace("ARC-TESTNET", "Arc Testnet") ?? "–";
   const explorerUrl = wallet?.address
-    ? `https://explorer.arc.io/address/${wallet.address}`
+    ? `https://testnet.arcscan.app/address/${wallet.address}`
     : null;
 
   return ReactDOM.createPortal(
@@ -293,6 +293,7 @@ export function CircleWalletProfile({ onClose }: CircleWalletProfileProps) {
             // Map token symbols to their real logo URLs
             const logoMap: Record<string, string> = {
               USDC:   "https://assets.coingecko.com/coins/images/6319/small/usdc.png",
+              EURC:   "/eurc.png",
               USDT:   "https://assets.coingecko.com/coins/images/325/small/Tether.png",
               BTC:    "https://assets.coingecko.com/coins/images/1/small/bitcoin.png",
               ETH:    "https://assets.coingecko.com/coins/images/279/small/ethereum.png",

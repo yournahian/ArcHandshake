@@ -362,18 +362,42 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
   }, []);
 
   // ── Poll IRIS until attestation is complete ──────────────────────────────
-  const pollAttestation = useCallback(async (messageHash: `0x${string}`): Promise<string> => {
-    const MAX_POLLS = 60; // 5 min max
+  const pollAttestation = useCallback(async (txHash: `0x${string}`, customSourceDomain?: number): Promise<{ attestation: string, messageBytes: string, sourceDomain?: number }> => {
+    const queryDomain = customSourceDomain !== undefined ? customSourceDomain : srcChain.domainId;
+    const MAX_POLLS = 240; // 20 min max to accommodate high Sandbox indexing traffic
     for (let i = 0; i < MAX_POLLS; i++) {
-      await new Promise(r => setTimeout(r, 5000));
-      const res = await fetch(`/api/circle/cctp/attestation?messageHash=${messageHash}`);
-      const data = await res.json();
-      if (data?.status === "complete" && data?.attestation) {
-        return data.attestation as string;
+      const displayStatus = i === 0 ? "Checking…" : "Polling…";
+      setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Status: ${displayStatus} (Note: Sandbox indexing can take 3-15 minutes depending on network traffic)`);
+      
+      try {
+        const res = await fetch(`/api/circle/cctp/attestation?sourceDomain=${queryDomain}&txHash=${txHash}`);
+        const data = await res.json();
+        
+        console.log("[CCTP pollAttestation]", data);
+        
+        if (data?.error) {
+          setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Error: ${data.error}`);
+        } else if (data?.status) {
+          setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Status: ${data.status} (Note: Sandbox indexing can take 3-15 minutes depending on network traffic)`);
+          if (data.status === "complete" && data.attestation && data.messageBytes) {
+            return {
+              attestation: data.attestation as string,
+              messageBytes: data.messageBytes as string,
+              sourceDomain: data.sourceDomain as number | undefined
+            };
+          }
+        } else {
+          setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Status: Unknown response`);
+        }
+      } catch (err: any) {
+        console.warn("Error calling attestation endpoint:", err);
+        setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Request failed`);
       }
+      
+      await new Promise(r => setTimeout(r, 5000));
     }
-    throw new Error("Attestation timed out after 5 minutes.");
-  }, []);
+    throw new Error("Attestation timed out after 20 minutes.");
+  }, [srcChain.domainId]);
 
   // ── Main bridge flow ─────────────────────────────────────────────────────
   const handleBridge = useCallback(async () => {
@@ -409,7 +433,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
           rpcUrls: { default: { http: [srcChain.rpcUrl] } },
         } as any,
-        transport: http(srcChain.rpcUrl),
+        transport: custom(provider),
       });
 
       const approveHash = await (walletClientSrc as any).writeContract({
@@ -434,11 +458,79 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
       const mintRecipient = addressToBytes32(targetRecipient as `0x${string}`) as `0x${string}`;
       const ZERO_BYTES32  = `0x${"0".repeat(64)}` as `0x${string}`;
 
+      // Diagnostics check
+      try {
+        const bal = await publicClientSrc.readContract({
+          address: srcChain.usdc,
+          abi: USDC_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        }) as bigint;
+        
+        const allowance = await publicClientSrc.readContract({
+          address: srcChain.usdc,
+          abi: USDC_ABI,
+          functionName: "allowance",
+          args: [address, srcChain.tokenMessenger],
+        }) as bigint;
+
+        const isSupported = await publicClientSrc.readContract({
+          address: srcChain.tokenMessenger,
+          abi: TOKEN_MESSENGER_ABI,
+          functionName: "isSupportedDestinationDomain",
+          args: [dstChain.domainId],
+        }) as boolean;
+
+        console.log("[CCTP Bridge Diagnostics]", {
+          userAddress: address,
+          amountNeeded: amountUnits.toString(),
+          userBalance: bal.toString(),
+          userAllowance: allowance.toString(),
+          tokenMessenger: srcChain.tokenMessenger,
+          usdcAddress: srcChain.usdc,
+          destinationDomain: dstChain.domainId,
+          isDestinationDomainSupported: isSupported,
+        });
+
+        if (bal < amountUnits) {
+          throw new Error(`Insufficient USDC balance on source chain. You have ${formatUnits(bal, 6)} USDC, but need ${amount} USDC.`);
+        }
+        if (allowance < amountUnits) {
+          throw new Error(`Allowance too low. Approved only ${formatUnits(allowance, 6)} USDC, but need ${amount} USDC.`);
+        }
+        if (!isSupported) {
+          throw new Error(`Destination domain ${dstChain.domainId} (Arc Testnet) is not supported by the CCTP TokenMessenger on ${srcChain.name}.`);
+        }
+      } catch (diagErr: any) {
+        if (
+          diagErr.message.includes("Insufficient") || 
+          diagErr.message.includes("Allowance too low") ||
+          diagErr.message.includes("not supported by the CCTP TokenMessenger")
+        ) {
+          throw diagErr;
+        }
+        console.warn("Diagnostics check failed, continuing anyway:", diagErr);
+      }
+
+      // Contract Call Simulation
+      try {
+        await publicClientSrc.simulateContract({
+          account: address,
+          address: srcChain.tokenMessenger,
+          abi: TOKEN_MESSENGER_ABI,
+          functionName: "depositForBurn",
+          args: [amountUnits, dstChain.domainId, mintRecipient, srcChain.usdc, ZERO_BYTES32, 0n, 1000],
+        });
+      } catch (simErr: any) {
+        console.error("[CCTP Bridge Simulation Failed]", simErr);
+        throw new Error(`Simulation failed: ${simErr.shortMessage || simErr.message}. Params: Amount=${amountUnits.toString()}, Domain=${dstChain.domainId}, Recipient=${mintRecipient}, USDC=${srcChain.usdc}, Messenger=${srcChain.tokenMessenger}`);
+      }
+
       const burnHash = await (walletClientSrc as any).writeContract({
         address: srcChain.tokenMessenger,
         abi: TOKEN_MESSENGER_ABI,
         functionName: "depositForBurn",
-        args: [amountUnits, dstChain.domainId, mintRecipient, srcChain.usdc, ZERO_BYTES32],
+        args: [amountUnits, dstChain.domainId, mintRecipient, srcChain.usdc, ZERO_BYTES32, 0n, 1000],
         gas: BigInt(250000), // Explicit override to bypass buggy RPC gas limit estimation
       });
       setBurnTxHash(burnHash);
@@ -446,30 +538,26 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
       // Wait for burn tx to be mined
       setStatusMsg("Waiting for burn transaction to be confirmed…");
       const receipt = await waitForReceipt(publicClientSrc, burnHash);
-
-      // Extract MessageSent event to get the message bytes, then compute messageHash
-      let messageBytes: `0x${string}` | null = null;
-      for (const log of receipt.logs) {
-        try {
-          const decoded = decodeEventLog({
-            abi: MESSAGE_SENT_EVENT_ABI,
-            eventName: "MessageSent",
-            data: log.data,
-            topics: log.topics,
-          });
-          messageBytes = (decoded.args as any).message as `0x${string}`;
-          break;
-        } catch (_) { /* skip unrelated logs */ }
+      if (receipt.status !== "success") {
+        const bal = await publicClientSrc.readContract({
+          address: srcChain.usdc,
+          abi: USDC_ABI,
+          functionName: "balanceOf",
+          args: [address],
+        }) as bigint;
+        const allowance = await publicClientSrc.readContract({
+          address: srcChain.usdc,
+          abi: USDC_ABI,
+          functionName: "allowance",
+          args: [address, srcChain.tokenMessenger],
+        }) as bigint;
+        throw new Error(`Burn transaction reverted on-chain. Diagnostics: Balance=${formatUnits(bal, 6)} USDC, Allowance=${formatUnits(allowance, 6)} USDC, Messenger=${srcChain.tokenMessenger}, Token=${srcChain.usdc}, Amount=${amount} USDC.`);
       }
-
-      if (!messageBytes) throw new Error("Could not find MessageSent event in burn receipt.");
-
-      const msgHash = keccak256(messageBytes) as `0x${string}`;
 
       // ── Step 3: Attest ─────────────────────────────────────────────────
       setStep("attesting");
       setStatusMsg("Circle is attesting the burn message (~30s). Please wait…");
-      const attestation = await pollAttestation(msgHash);
+      const { attestation, messageBytes } = await pollAttestation(burnHash);
 
       // ── Step 4: Mint ───────────────────────────────────────────────────
       setStep("minting");
@@ -536,6 +624,116 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     address,
     amount,
     chainId,
+    srcChain,
+    dstChain,
+    pollAttestation,
+    switchChain,
+    bridgeToCircleWallet,
+    circleWalletAddress,
+    executeContractCall,
+    fetchBalances,
+    pollAttestation,
+    switchChain,
+    bridgeToCircleWallet,
+    circleWalletAddress,
+    executeContractCall,
+    fetchBalances,
+  ]);
+
+  const handleResume = useCallback(async (hashToResume: `0x${string}`) => {
+    if (!address || typeof window === "undefined" || !(window as any).ethereum) return;
+    setErrorMsg("");
+    setStep("burning");
+    setStatusMsg("Resuming bridge transaction from burn hash…");
+    const provider = (window as any).ethereum;
+
+    try {
+      setBurnTxHash(hashToResume);
+
+      // Detect source domain from wallet's active chain
+      let detectedDomain = srcChain.domainId;
+      if (chainId) {
+        const foundChain = Object.values(CCTP_CHAINS).find(c => c.id === chainId);
+        if (foundChain) detectedDomain = foundChain.domainId;
+      }
+
+      // ── Step 3: Attest ─────────────────────────────────────────────────
+      setStep("attesting");
+      setStatusMsg("Circle is attesting the burn message (~30s). Please wait…");
+      const { attestation, messageBytes, sourceDomain } = await pollAttestation(hashToResume, detectedDomain);
+
+      // Automatically update source chain selection in UI if API returned the auto-detected source domain
+      if (sourceDomain !== undefined) {
+        const foundKey = Object.keys(CCTP_CHAINS).find(
+          key => CCTP_CHAINS[key].domainId === sourceDomain
+        );
+        if (foundKey) {
+          setSrcKey(foundKey);
+        }
+      }
+
+      // ── Step 4: Mint ───────────────────────────────────────────────────
+      setStep("minting");
+
+      const publicClientDst = createPublicClient({
+        chain: {
+          id: dstChain.id,
+          name: dstChain.name,
+          nativeCurrency: dstChain.nativeCurrency || { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+        } as any,
+        transport: http(dstChain.rpcUrl),
+      });
+
+      if (bridgeToCircleWallet && dstChain.id === 5042002 && executeContractCall) {
+        setStatusMsg("Minting USDC directly to your Circle Wallet on Arc Testnet. Please approve the PIN prompt…");
+        const mintHash = await executeContractCall({
+          contractAddress: dstChain.messageTransmitter,
+          abiFunctionSignature: "receiveMessage(bytes,bytes)",
+          abiParameters: [
+            { type: "bytes", value: messageBytes },
+            { type: "bytes", value: attestation },
+          ],
+        });
+        setDstTxHash(mintHash as `0x${string}`);
+      } else {
+        setStatusMsg("Switching to destination chain to mint USDC…");
+        await switchChain(dstChain.id);
+
+        const walletClientDst = createWalletClient({
+          account: address,
+          chain: {
+            id: dstChain.id,
+            name: dstChain.name,
+            nativeCurrency: dstChain.nativeCurrency || { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+          } as any,
+          transport: custom(provider),
+        });
+
+        setStatusMsg("Minting USDC on destination chain…");
+        const mintHash = await (walletClientDst as any).writeContract({
+          address: dstChain.messageTransmitter,
+          abi: MESSAGE_TRANSMITTER_ABI,
+          functionName: "receiveMessage",
+          args: [messageBytes, attestation as `0x${string}`],
+          gas: BigInt(350000),
+        });
+        setDstTxHash(mintHash);
+
+        await waitForReceipt(publicClientDst, mintHash);
+      }
+
+      setStep("done");
+      setStatusMsg("");
+      fetchBalances();
+    } catch (err: any) {
+      console.error("[CCTP Bridge]", err);
+      setStep("error");
+      setErrorMsg(err.shortMessage || err.message || "Bridge failed. Please try again.");
+    }
+  }, [
+    address,
     srcChain,
     dstChain,
     pollAttestation,
@@ -723,20 +921,51 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           {/* Bridge button */}
           <button
             onClick={handleBridge}
-            disabled={!amount || parseFloat(amount) <= 0}
+            disabled={!amount || parseFloat(amount) <= 0 || parseFloat(amount) > parseFloat(srcBalance)}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
               padding: "12px 20px", borderRadius: "12px", border: "none",
-              background: !amount || parseFloat(amount) <= 0
+              background: (!amount || parseFloat(amount) <= 0 || parseFloat(amount) > parseFloat(srcBalance))
                 ? "rgba(255,255,255,0.06)"
                 : "linear-gradient(135deg, #f59e0b, #ef4444)",
-              color: !amount || parseFloat(amount) <= 0 ? "var(--text-muted,#888)" : "#fff",
+              color: (!amount || parseFloat(amount) <= 0 || parseFloat(amount) > parseFloat(srcBalance)) ? "var(--text-muted,#888)" : "#fff",
               fontWeight: 700, fontSize: "0.95rem",
-              cursor: !amount || parseFloat(amount) <= 0 ? "not-allowed" : "pointer",
+              cursor: (!amount || parseFloat(amount) <= 0 || parseFloat(amount) > parseFloat(srcBalance)) ? "not-allowed" : "pointer",
             }}
           >
-            <GitMerge size={18} /> Start Bridge
+            <GitMerge size={18} />
+            {parseFloat(amount) > parseFloat(srcBalance) ? "Insufficient USDC Balance" : "Start Bridge"}
           </button>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "12px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "12px" }}>
+            <span style={{ fontSize: "0.72rem", color: "var(--text-muted,#888)" }}>Already burned? Resume bridge by pasting the transaction hash:</span>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <input 
+                type="text" 
+                placeholder="Paste burn transaction hash (0x...)" 
+                id="idle-resume-hash-input"
+                style={{
+                  flex: 1, padding: "8px 12px", borderRadius: "8px",
+                  background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#fff", fontSize: "0.8rem", outline: "none"
+                }}
+              />
+              <button 
+                onClick={() => {
+                  const input = document.getElementById("idle-resume-hash-input") as HTMLInputElement;
+                  if (input && input.value.trim().startsWith("0x") && input.value.trim().length > 10) {
+                    handleResume(input.value.trim() as `0x${string}`);
+                  }
+                }}
+                style={{
+                  padding: "8px 14px", borderRadius: "8px", border: "none",
+                  background: "linear-gradient(135deg, #f59e0b, #ef4444)", color: "#fff", fontSize: "0.8rem", cursor: "pointer", fontWeight: 600
+                }}
+              >
+                Resume
+              </button>
+            </div>
+          </div>
         </>
       )}
 
@@ -786,9 +1015,53 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
             <AlertCircle size={16} style={{ color: "#ef4444", flexShrink: 0, marginTop: "2px" }} />
             <p style={{ margin: 0, fontSize: "0.82rem", color: "#ef4444", lineHeight: 1.5 }}>{errorMsg}</p>
           </div>
-          <button onClick={reset} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "10px 20px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "var(--text-muted,#888)", cursor: "pointer" }}>
-            <RefreshCw size={14} /> Try Again
-          </button>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <button onClick={reset} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "10px 20px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)", background: "transparent", color: "var(--text-muted,#888)", cursor: "pointer" }}>
+              <RefreshCw size={14} /> Reset / Start Over
+            </button>
+            {burnTxHash && (
+              <button 
+                onClick={() => handleResume(burnTxHash)} 
+                style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                  padding: "10px 20px", borderRadius: "10px", border: "none",
+                  background: "linear-gradient(135deg, #10b981, #059669)", color: "#fff",
+                  fontWeight: 700, cursor: "pointer"
+                }}
+              >
+                <RefreshCw size={14} /> Resume Bridge
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "12px" }}>
+            <span style={{ fontSize: "0.72rem", color: "var(--text-muted,#888)" }}>Already burned? Paste transaction hash to resume:</span>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <input 
+                type="text" 
+                placeholder="0x..." 
+                id="resume-hash-input"
+                style={{
+                  flex: 1, padding: "8px 12px", borderRadius: "8px",
+                  background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#fff", fontSize: "0.8rem", outline: "none"
+                }}
+              />
+              <button 
+                onClick={() => {
+                  const input = document.getElementById("resume-hash-input") as HTMLInputElement;
+                  if (input && input.value.trim().startsWith("0x") && input.value.trim().length > 10) {
+                    handleResume(input.value.trim() as `0x${string}`);
+                  }
+                }}
+                style={{
+                  padding: "8px 14px", borderRadius: "8px", border: "none",
+                  background: "rgba(255,255,255,0.1)", color: "#fff", fontSize: "0.8rem", cursor: "pointer"
+                }}
+              >
+                Go
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -22,7 +22,8 @@ export default function EscrowDetail() {
   const router = useRouter();
   const { address, isConnected } = useWallet();
   const { executeContractCall } = useCircleWallet();
-  const jobId = BigInt(id as string);
+  const isNumeric = typeof id === "string" && /^\d+$/.test(id);
+  const jobId = isNumeric ? BigInt(id as string) : 0n;
 
   // Local file upload state (for demo and watermarking)
   const [fileUrl, setFileUrl] = useState<string | null>(null);
@@ -54,6 +55,8 @@ export default function EscrowDetail() {
   const [fraudData, setFraudData] = useState<any>(null);
   const [loadingAI, setLoadingAI] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [completedTxHash, setCompletedTxHash] = useState<string | null>(null);
+  const [hasReviewed, setHasReviewed] = useState(false);
 
   const alert = useCallback((message: string) => {
     const lower = message.toLowerCase();
@@ -105,6 +108,57 @@ export default function EscrowDetail() {
       setIsPending(false);
     }
   }, [jobId]);
+
+  const fetchCompletedTxHash = useCallback(async () => {
+    try {
+      const logs = await publicClient.getLogs({
+        address: DEPLOYED_ESCROW_ADDRESS,
+        event: {
+          type: "event",
+          name: "Completed",
+          inputs: [
+            { type: "uint256", name: "jobId", indexed: true },
+            { type: "bytes32", name: "reason" }
+          ]
+        },
+        args: {
+          jobId: jobId
+        },
+        fromBlock: 0n,
+        toBlock: "latest"
+      });
+      if (logs && logs.length > 0) {
+        return logs[0].transactionHash;
+      }
+    } catch (e) {
+      console.error("Failed to query Completed event logs:", e);
+    }
+    return null;
+  }, [jobId]);
+
+  const fetchReviewStatus = useCallback(async () => {
+    if (!address || !jobId) return;
+    const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!hasSupabase) return;
+    try {
+      const { data } = await supabase
+        .from("reviews")
+        .select("id")
+        .eq("escrow_id", Number(jobId))
+        .eq("reviewer_address", address.toLowerCase())
+        .maybeSingle();
+      if (data) {
+        setHasReviewed(true);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [address, jobId]);
+
+  useEffect(() => {
+    fetchReviewStatus();
+  }, [fetchReviewStatus]);
+
 
   useEffect(() => {
     refetch();
@@ -197,6 +251,52 @@ export default function EscrowDetail() {
       })
       .catch(() => setUsdRate(1.0));
   }, []);
+
+  // Map tuple results from contract safely
+  const [
+    _,
+    client,
+    provider,
+    evaluator,
+    description,
+    budgetRaw,
+    expiredAtRaw,
+    status,
+    hook,
+    deliverableHash,
+    qrConfirmationHash
+  ] = jobRaw || [
+    undefined,
+    "",
+    "",
+    "",
+    "",
+    BigInt(0),
+    BigInt(0),
+    0,
+    "",
+    "0x",
+    "0x"
+  ];
+
+  const budget = formatUnits(budgetRaw, 6);
+  const isClient = address?.toLowerCase() === client.toLowerCase();
+  const isProvider = address?.toLowerCase() === provider.toLowerCase();
+  const isEvaluator = address?.toLowerCase() === evaluator.toLowerCase();
+  const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+  useEffect(() => {
+    if (status === 3) {
+      fetchCompletedTxHash().then(hash => {
+        if (hash) {
+          setCompletedTxHash(hash);
+          try {
+            localStorage.setItem(`arc_completed_tx_${jobId}`, hash);
+          } catch (e) {}
+        }
+      });
+    }
+  }, [status, fetchCompletedTxHash, jobId]);
 
   // Fetch AI summary & fraud flags
   useEffect(() => {
@@ -394,32 +494,7 @@ export default function EscrowDetail() {
     }
   }, [jobRaw, id, router]);
 
-  // Map tuple results from contract safely
-  const [
-    _,
-    client,
-    provider,
-    evaluator,
-    description,
-    budgetRaw,
-    expiredAtRaw,
-    status,
-    hook,
-    deliverableHash,
-    qrConfirmationHash
-  ] = jobRaw || [
-    undefined,
-    "",
-    "",
-    "",
-    "",
-    BigInt(0),
-    BigInt(0),
-    0,
-    "",
-    "0x",
-    "0x"
-  ];
+
 
   // ─── Live countdown (runs after jobRaw is available) ─────────────────────
   useEffect(() => {
@@ -448,10 +523,7 @@ export default function EscrowDetail() {
     return () => clearInterval(timer);
   }, [expiredAtRaw]);
 
-  const budget = formatUnits(budgetRaw, 6);
-  const isClient = address?.toLowerCase() === client.toLowerCase();
-  const isProvider = address?.toLowerCase() === provider.toLowerCase();
-  const isEvaluator = address?.toLowerCase() === evaluator.toLowerCase();
+
 
   // 1. Determine the negotiation state machine
   const dbResult = submission && submission.status === "Negotiation" ? submission.result : null;
@@ -473,6 +545,8 @@ export default function EscrowDetail() {
       ? localCounterOffer
       : (submission && submission.status === "Negotiation" && submission.result.startsWith("Counter-offer: "))
       ? submission.result.replace("Counter-offer: ", "").replace(" USDC", "")
+      : (submission && submission.status === "Negotiation" && submission.result.startsWith("Proposed budget: "))
+      ? submission.result.replace("Proposed budget: ", "").replace(" USDC", "")
       : null;
 
     if (activeOffer) {
@@ -555,8 +629,6 @@ export default function EscrowDetail() {
       </div>
     );
   }
-
-  const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 
   const statuses = [
@@ -741,6 +813,21 @@ export default function EscrowDetail() {
       );
       const fundReceipt = await waitForReceipt(publicClient, fundTxHash);
       if (fundReceipt.status !== "success") throw new Error("Funding transaction reverted!");
+
+      // Save escrow funding transaction to localStorage to show real amounts in profile transaction logs
+      try {
+        const savedRaw = localStorage.getItem("arc_saved_escrows") || "{}";
+        const saved = JSON.parse(savedRaw);
+        saved[fundTxHash.toLowerCase()] = {
+          amount: budget,
+          symbol: "USDC",
+          jobId: Number(jobId),
+          type: "fund"
+        };
+        localStorage.setItem("arc_saved_escrows", JSON.stringify(saved));
+      } catch (e) {
+        console.warn("Failed to cache funded escrow transaction:", e);
+      }
 
       refetch();
 
@@ -1056,9 +1143,11 @@ export default function EscrowDetail() {
 
   // Try to find a transaction hash in submission logs, API responses, or local storage
   const getTransactionHash = () => {
+    if (completedTxHash && completedTxHash !== "0x") return completedTxHash;
+
     try {
       const savedTx = localStorage.getItem(`arc_completed_tx_${jobId}`);
-      if (savedTx) return savedTx;
+      if (savedTx && savedTx !== "0x") return savedTx;
     } catch (e) {}
 
     if (submission && submission.result) {
@@ -1651,15 +1740,20 @@ export default function EscrowDetail() {
             <div style={{ background: "rgba(16, 185, 129, 0.04)", border: "1px solid rgba(16, 185, 129, 0.15)", borderRadius: "12px", padding: "20px", textAlign: "center" }}>
               <span style={{ fontSize: "1.1rem" }}>🌟</span>
               <p style={{ margin: "6px 0 12px", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-                This escrow is completed. Leave a review for the counterparty to build their reputation score.
+                {hasReviewed 
+                  ? "You have already reviewed this transaction. Thank you!" 
+                  : "This escrow is completed. Leave a review for the counterparty to build their reputation score."
+                }
               </p>
-              <button
-                onClick={() => setShowReviewModal(true)}
-                className="btn-primary"
-                style={{ margin: "0 auto", padding: "8px 16px", fontSize: "0.82rem" }}
-              >
-                Leave a Review
-              </button>
+              {!hasReviewed && (
+                <button
+                  onClick={() => setShowReviewModal(true)}
+                  className="btn-primary"
+                  style={{ margin: "0 auto", padding: "8px 16px", fontSize: "0.82rem" }}
+                >
+                  Leave a Review
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1698,6 +1792,10 @@ export default function EscrowDetail() {
           revieweeAddress={isClient ? provider : client}
           revieweeName={isClient ? "Seller" : "Buyer"}
           onClose={() => setShowReviewModal(false)}
+          onSubmitted={() => {
+            setHasReviewed(true);
+            setShowReviewModal(false);
+          }}
         />
       )}
     </div>
