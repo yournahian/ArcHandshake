@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim() || "";
+import { callAI, getAISettings } from "@/lib/adminSettings";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,18 +9,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Description is required" }, { status: 400 });
     }
 
-    // Fallback if no Gemini key
-    if (!GEMINI_API_KEY) {
+    const settings = getAISettings();
+
+    // Fallback if no active API key
+    if (!settings.apiKey) {
       return NextResponse.json({
-        summary: description,
+        plainSummary: description,
         priceRange: { min: null, max: null },
         riskFlags: [],
-        plainSummary: description,
+        suggestions: [],
       });
     }
-
-    const ai = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `You are an escrow contract assistant for ArcHandshake, a USDC peer-to-peer escrow platform on Arc blockchain.
 
@@ -41,12 +38,12 @@ Respond with EXACTLY this JSON structure:
 
 Price range should be in USDC. Only flag real risks (vague description, unrealistic amount, no deliverable defined). Keep riskFlags empty array if no issues. Maximum 2 risk flags and 2 suggestions.`;
 
-    const result = await model.generateContent(prompt);
-    const raw = result.response.text().replace(/```json|```/g, "").trim();
+    const raw = await callAI(prompt);
+    const cleaned = raw.replace(/```json|```/g, "").trim();
 
     let parsed: any;
     try {
-      parsed = JSON.parse(raw);
+      parsed = JSON.parse(cleaned);
     } catch {
       return NextResponse.json({
         plainSummary: description,

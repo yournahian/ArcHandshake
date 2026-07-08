@@ -16,7 +16,7 @@ import { publicClient } from "@/lib/publicClient";
 const USDC_ADDRESS = "0x3600000000000000000000000000000000000000";
 // AI Evaluator = Bot wallet address (confirmed from bot startup log: 🤖 Bot Wallet Address)
 // Reads from env var first, falls back to the known deployed address.
-const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x546c8C7A9d3Db29eb0c194Da0c72631F8a717b00";
+const DEFAULT_EVALUATOR = process.env.NEXT_PUBLIC_BOT_WALLET_ADDRESS || "0x54190a788EEf66d9AbddcF7d135B09B4D2b72F3A";
 
 
 
@@ -94,6 +94,17 @@ function CreateEscrowContent() {
     localStorage.setItem("arc_escrow_templates", JSON.stringify(list));
   };
 
+  const insertTemplate = () => {
+    setDescription(
+      "1. DELIVERABLE TYPE:\n" +
+      "(E.g. a ZIP archive containing code, a single PNG logo, a PDF document, etc.)\n\n" +
+      "2. ACCEPTANCE CRITERIA:\n" +
+      "(E.g. must contain a red button, must compile, size must be 500x500px, or specific content words)\n\n" +
+      "3. VERIFICATION WORD / KEYWORD:\n" +
+      "(E.g. must contain the phrase 'ARCH-VERIFIED-2026' in the file contents)"
+    );
+  };
+
   const analyzeDescription = async () => {
     if (!description.trim()) return;
     setAiLoading(true);
@@ -124,7 +135,13 @@ function CreateEscrowContent() {
   const [isPollingBudget, setIsPollingBudget] = useState(false);
   const [budgetFound, setBudgetFound] = useState(false);
 
-
+  // Self-healing timeout for stuck transaction pending states (resets stuck buttons after unhandled wallet errors)
+  useEffect(() => {
+    if (isTxPending) {
+      const t = setTimeout(() => setIsTxPending(false), 45000);
+      return () => clearTimeout(t);
+    }
+  }, [isTxPending]);
 
   // Pre-fill parameters from Telegram query params
   useEffect(() => {
@@ -216,11 +233,11 @@ function CreateEscrowContent() {
           body: JSON.stringify({
             buyerAddress: provider, // In seller mode, "provider" input is the Buyer
             sellerAddress: address,
-            description,
+            description: "", // Buyer defines task description upon proposal acceptance
             budget,
             hours,
             escrowType,
-            qrCodeWord
+            qrCodeWord: "" // Buyer defines meetup release word upon proposal acceptance
           })
         });
 
@@ -255,7 +272,7 @@ function CreateEscrowContent() {
         provider as `0x${string}`,
         evaluator as `0x${string}`,
         expiredAt,
-        description,
+        escrowType === "physical" ? "In-Person Meetup Escrow" : description,
         "0x0000000000000000000000000000000000000000" as `0x${string}`
       ]);
 
@@ -516,7 +533,7 @@ function CreateEscrowContent() {
             </div>
 
             {/* Templates Selector */}
-            {templates.length > 0 && (
+            {templates.length > 0 && creatorRole === "buyer" && (
               <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "10px", padding: "12px 14px" }}>
                 <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 600, display: "block", marginBottom: "8px" }}>
                   📂 Quick Templates
@@ -662,77 +679,113 @@ function CreateEscrowContent() {
               </div>
             )}
 
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                <label htmlFor="description" style={{ margin: 0 }}>Task Details & Specifications</label>
-                <button
-                  type="button"
-                  onClick={analyzeDescription}
-                  disabled={aiLoading || !description.trim()}
-                  style={{
-                    background: "none", border: "none", color: "var(--primary)",
-                    fontSize: "0.78rem", cursor: "pointer", display: "flex",
-                    alignItems: "center", gap: "4px", padding: 0
-                  }}
-                >
-                  {aiLoading ? "Analyzing..." : "✨ AI Analyze Description"}
-                </button>
-              </div>
-              <textarea
-                id="description"
-                rows={3}
-                placeholder="Describe deliverable properties (e.g., File format: SVG, color: blue rocket)"
-                required
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-
-              {/* AI summary preview */}
-              {aiSummary && (
-                <div style={{
-                  marginTop: "12px",
-                  background: "rgba(99,102,241,0.04)",
-                  border: "1px solid rgba(99,102,241,0.15)",
-                  borderRadius: "10px",
-                  padding: "12px",
-                }}>
-                  <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "#818cf8", display: "block", marginBottom: "4px" }}>
-                    ✨ AI Proposed Specifications
-                  </span>
-                  <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
-                    {aiSummary.plainSummary}
+            {escrowType === "digital" && (
+              creatorRole === "buyer" ? (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                    <label htmlFor="description" style={{ margin: 0 }}>Task Details & Specifications</label>
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <button
+                        type="button"
+                        onClick={insertTemplate}
+                        style={{
+                          background: "none", border: "none", color: "var(--primary)",
+                          fontSize: "0.78rem", cursor: "pointer", display: "flex",
+                          alignItems: "center", gap: "4px", padding: 0, opacity: 0.85
+                        }}
+                      >
+                        📋 Use Template
+                      </button>
+                      <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>|</span>
+                      <button
+                        type="button"
+                        onClick={analyzeDescription}
+                        disabled={aiLoading || !description.trim()}
+                        style={{
+                          background: "none", border: "none", color: "var(--primary)",
+                          fontSize: "0.78rem", cursor: "pointer", display: "flex",
+                          alignItems: "center", gap: "4px", padding: 0
+                        }}
+                      >
+                        {aiLoading ? "Analyzing..." : "✨ AI Analyze Description"}
+                      </button>
+                    </div>
+                  </div>
+                  <p style={{ margin: "4px 0 8px", fontSize: "0.75rem", color: "var(--text-secondary)", lineHeight: 1.35 }}>
+                    💡 <b>Anti-Scam Tip:</b> Make specifications clear and objective (e.g. file extensions, specific text content, colors). This helps the AI Evaluator verify the deliverable precisely and prevents fake work releases.
                   </p>
-                  {aiSummary.priceRange && (aiSummary.priceRange.min || aiSummary.priceRange.max) && (
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "6px", display: "flex", gap: "10px" }}>
-                      <span>💡 Suggested budget: {aiSummary.priceRange.min ?? "?"} - {aiSummary.priceRange.max ?? "?"} USDC</span>
-                      {aiSummary.estimatedDuration && (
-                        <span>⏱ Est. Time: {aiSummary.estimatedDuration}</span>
+                  <textarea
+                    id="description"
+                    rows={5}
+                    placeholder="E.g. Code project: must be a ZIP file containing index.html. Design: must be a high-quality PNG logo of a red rocket."
+                    required={creatorRole === "buyer" && escrowType === "digital"}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    style={{ minHeight: "100px", fontFamily: "inherit" }}
+                  />
+
+                  {/* AI summary preview */}
+                  {aiSummary && (
+                    <div style={{
+                      marginTop: "12px",
+                      background: "rgba(99,102,241,0.04)",
+                      border: "1px solid rgba(99,102,241,0.15)",
+                      borderRadius: "10px",
+                      padding: "12px",
+                    }}>
+                      <span style={{ fontSize: "0.76rem", fontWeight: 700, color: "#818cf8", display: "block", marginBottom: "4px" }}>
+                        ✨ AI Proposed Specifications
+                      </span>
+                      <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                        {aiSummary.plainSummary}
+                      </p>
+                      {aiSummary.priceRange && (aiSummary.priceRange.min || aiSummary.priceRange.max) && (
+                        <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "6px", display: "flex", gap: "10px" }}>
+                          <span>💡 Suggested budget: {aiSummary.priceRange.min ?? "?"} - {aiSummary.priceRange.max ?? "?"} USDC</span>
+                          {aiSummary.estimatedDuration && (
+                            <span>⏱ Est. Time: {aiSummary.estimatedDuration}</span>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
+              ) : (
+                <div style={{
+                  padding: "16px",
+                  borderRadius: "12px",
+                  background: "rgba(99,102,241,0.06)",
+                  border: "1px solid rgba(99,102,241,0.15)",
+                  fontSize: "0.85rem",
+                  color: "var(--text-secondary,#aaa)",
+                  lineHeight: 1.6
+                }}>
+                  📝 <b>Task Specifications:</b> Senders (Sellers) cannot define the contract details. The buyer (client) will write the exact task details, deliverables, and acceptance criteria when they approve and fund this proposal.
+                </div>
+              )
+            )}
 
             {!isConnected ? (
               <div style={{ padding: "12px", background: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: "8px", color: "var(--danger)", textAlign: "center", fontWeight: 500 }}>
                 Please connect your wallet at the top of the page.
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: creatorRole === "buyer" ? "1fr 1fr" : "1fr", gap: "12px" }}>
                 <button type="submit" className="btn-primary" disabled={isTxPending} style={{ justifyContent: "center" }}>
                   {isTxPending 
                     ? (creatorRole === "seller" ? "Sending Proposal..." : "Deploying...") 
                     : (creatorRole === "seller" ? "Send Escrow Proposal" : "Lock Escrow Onchain")}
                 </button>
-                <button
-                  type="button"
-                  onClick={saveTemplate}
-                  className="btn-secondary"
-                  style={{ justifyContent: "center" }}
-                >
-                  Save as Template
-                </button>
+                {creatorRole === "buyer" && (
+                  <button
+                    type="button"
+                    onClick={saveTemplate}
+                    className="btn-secondary"
+                    style={{ justifyContent: "center" }}
+                  >
+                    Save as Template
+                  </button>
+                )}
               </div>
             )}
           </form>

@@ -4,8 +4,8 @@ import dns from "dns";
 dns.setDefaultResultOrder("ipv4first");
 
 import { parseMessageIntent, verifyDeliverable } from "./services/ai.js";
-import { getJobDetails, releaseEscrow, rejectSubmission, getTreasuryStats, publicClient, account } from "./services/blockchain.js";
-import { keccak256, toHex } from "viem";
+import { getJobDetails, releaseEscrow, rejectSubmission, getTreasuryStats, publicClient, account, resolveDispute, resolveDisputeCustom } from "./services/blockchain.js";
+import { keccak256, toHex, parseUnits } from "viem";
 import { supabase } from "./services/supabase.js";
 import * as dotenv from "dotenv";
 import * as path from "path";
@@ -204,6 +204,11 @@ function listenToSupabaseRealtime() {
               console.error("Failed to send seller notification:", notifyErr);
             }
           }
+
+          // Log and track dispute status changes
+          if (newRow.status === "Disputed") {
+            console.log(`⚠️ Realtime Event: Job #${newRow.job_id} has been disputed. Funds frozen on-chain. Waiting for arbitrator.`);
+          }
         }
       }
     )
@@ -333,6 +338,56 @@ app.post("/api/escrow/release", async (req: any, res: any) => {
   } catch (error: any) {
     console.error("Error in manual escrow release endpoint:", error);
     res.status(500).json({ error: error.message || "Manual release transaction failed" });
+  }
+});
+
+// POST to resolve dispute by arbitrator (acting through delegating execution to bot)
+app.post("/api/escrow/resolve", async (req: any, res: any) => {
+  const { jobId, resolution, clientShare } = req.body;
+  if (jobId === undefined || resolution === undefined) {
+    return res.status(400).json({ error: "Missing jobId or resolution" });
+  }
+
+  try {
+    const job = await getJobDetails(BigInt(jobId));
+    if (!job) {
+      return res.status(404).json({ error: "Job not found onchain" });
+    }
+
+    let txHash: string;
+    if (Number(resolution) === 3) {
+      if (clientShare === undefined) {
+        return res.status(400).json({ error: "Missing clientShare for custom split resolution" });
+      }
+      const clientShareRaw = parseUnits(clientShare.toString(), 6);
+      txHash = await resolveDisputeCustom(BigInt(jobId), clientShareRaw);
+    } else {
+      txHash = await resolveDispute(BigInt(jobId), Number(resolution));
+    }
+
+    // Update Supabase status and message
+    try {
+      const resolutionLabel = Number(resolution) === 0 ? "Refunded" : Number(resolution) === 1 ? "Approved" : Number(resolution) === 2 ? "Split" : "Custom Split";
+      const resolutionResult = Number(resolution) === 3
+        ? `Dispute resolved by Admin with custom split: ${clientShare} USDC to Buyer, ${(Number(job[5]) / 1000000 - Number(clientShare)).toFixed(2)} USDC to Seller. Tx Hash: ${txHash}`
+        : `Dispute resolved by Admin. Resolution: ${Number(resolution) === 0 ? "Refund Buyer" : Number(resolution) === 1 ? "Pay Seller" : "50/50 Split"}. Tx Hash: ${txHash}`;
+
+      await supabase.from("escrow_submissions").upsert({
+        job_id: Number(jobId),
+        status: resolutionLabel,
+        result: resolutionResult,
+        file_url: "",
+        file_name: "",
+        source: "web"
+      });
+    } catch (dbErr) {
+      console.error("Failed to update dispute resolution in Supabase:", dbErr);
+    }
+
+    res.json({ success: true, txHash });
+  } catch (error: any) {
+    console.error("Error in dispute resolution endpoint:", error);
+    res.status(500).json({ error: error.message || "Dispute resolution transaction failed" });
   }
 });
 

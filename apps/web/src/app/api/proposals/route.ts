@@ -38,7 +38,7 @@ export async function POST(req: Request) {
   try {
     const { buyerAddress, sellerAddress, description, budget, hours, escrowType, qrCodeWord } = await req.json();
 
-    if (!buyerAddress || !sellerAddress || !description || !budget) {
+    if (!buyerAddress || !sellerAddress || !budget) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       .insert({
         buyer_address: buyerAddress.toLowerCase(),
         seller_address: sellerAddress.toLowerCase(),
-        description,
+        description: description || "",
         budget: parseFloat(budget),
         hours: hours ? parseInt(hours) : 24,
         escrow_type: escrowType || "digital",

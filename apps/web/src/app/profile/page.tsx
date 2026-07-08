@@ -481,14 +481,14 @@ export default function ProfilePage() {
   // Activity Graph Path Constructor (Sleek custom SVG area chart)
   const buildSvgPath = () => {
     const defaultPoints = [
-      { x: 0, y: 120 }, { x: 100, y: 100 }, { x: 200, y: 110 },
-      { x: 300, y: 80 }, { x: 400, y: 90 }, { x: 500, y: 40 },
-      { x: 600, y: 60 }, { x: 700, y: 20 }
+      { x: 15, y: 120 }, { x: 125, y: 100 }, { x: 235, y: 110 },
+      { x: 350, y: 80 }, { x: 465, y: 90 }, { x: 575, y: 40 },
+      { x: 685, y: 20 }
     ];
 
     if (circleTransactions.length === 0) {
-      const dLine = `M 0,120 C 150,110 150,40 300,80 C 450,120 450,20 600,50 C 650,60 700,20 700,20`;
-      const dArea = `${dLine} L 700,150 L 0,150 Z`;
+      const dLine = `M 15,120 C 150,110 200,40 350,80 C 450,120 550,20 685,20`;
+      const dArea = `${dLine} L 685,150 L 15,150 Z`;
       return { line: dLine, area: dArea, isMock: true, points: defaultPoints };
     }
 
@@ -497,16 +497,17 @@ export default function ProfilePage() {
       .slice(-7);
 
     const points = sortedTx.map((tx, index) => {
-      const x = (index / (Math.max(1, sortedTx.length - 1))) * 700;
+      // Map x inside safe range [15, 685] to prevent clipping nodes on edges
+      const x = 15 + (index / (Math.max(1, sortedTx.length - 1))) * 670;
       const amount = parseFloat(tx.amounts?.[0] || tx.amount || "0");
       const maxAmt = Math.max(...sortedTx.map(t => parseFloat(t.amounts?.[0] || t.amount || "1")));
-      const y = 140 - ((amount / (maxAmt || 1)) * 110);
+      const y = 135 - ((amount / (maxAmt || 1)) * 105);
       return { x, y: isNaN(y) ? 80 : y, amount };
     });
 
     if (points.length === 1) {
-      points.unshift({ x: 0, y: 120, amount: 0 });
-      points.push({ x: 700, y: points[1].y, amount: points[1].amount });
+      points.unshift({ x: 15, y: 120, amount: 0 });
+      points.push({ x: 685, y: points[1].y, amount: points[1].amount });
     }
 
     let dLine = `M ${points[0].x},${points[0].y}`;
@@ -519,7 +520,7 @@ export default function ProfilePage() {
       const cpY2 = curr.y;
       dLine += ` C ${cpX1},${cpY1} ${cpX2},${cpY2} ${curr.x},${curr.y}`;
     }
-    const dArea = `${dLine} L 700,150 L 0,150 Z`;
+    const dArea = `${dLine} L ${points[points.length - 1].x},150 L ${points[0].x},150 Z`;
     return { line: dLine, area: dArea, isMock: false, points };
   };
 
@@ -528,7 +529,7 @@ export default function ProfilePage() {
   if (!mounted) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
-        <RefreshCw size={24} className="animate-spin" style={{ color: "var(--primary)" }} />
+        <RefreshCw size={24} className="animate-spin" style={{ color: "#818cf8" }} />
       </div>
     );
   }
@@ -541,7 +542,7 @@ export default function ProfilePage() {
       {/* Header Banner */}
       <div className="glass-card responsive-card-padding" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "16px", background: "linear-gradient(135deg, rgba(99,102,241,0.06), rgba(168,85,247,0.03))", position: "relative", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <div style={{ background: "linear-gradient(135deg, var(--primary), #8b5cf6)", width: "60px", height: "60px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 20px rgba(99,102,241,0.25)" }}>
+          <div style={{ background: "linear-gradient(135deg, #818cf8, #8b5cf6)", width: "60px", height: "60px", borderRadius: "16px", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 8px 20px rgba(99,102,241,0.25)" }}>
             <User size={30} style={{ color: "#fff" }} />
           </div>
           <div>
@@ -866,7 +867,7 @@ export default function ProfilePage() {
           <div className="glass-card responsive-card-padding" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Activity size={18} style={{ color: "var(--primary)" }} />
+                <Activity size={18} style={{ color: "#818cf8" }} />
                 <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>Transaction Volume</h3>
               </div>
               <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", padding: "3px 8px", borderRadius: "20px" }}>
@@ -879,8 +880,8 @@ export default function ProfilePage() {
               <svg viewBox="0 0 700 150" width="100%" height="100%" preserveAspectRatio="none">
                 <defs>
                   <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.45" />
-                    <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor="#818cf8" stopOpacity="0.45" />
+                    <stop offset="100%" stopColor="#818cf8" stopOpacity="0.0" />
                   </linearGradient>
                 </defs>
                 
@@ -888,12 +889,12 @@ export default function ProfilePage() {
                 <path d={path.area} fill="url(#chartGrad)" />
                 
                 {/* Stroke line */}
-                <path d={path.line} fill="none" stroke="var(--primary)" strokeWidth="3.5" strokeLinecap="round" />
+                <path d={path.line} fill="none" stroke="#818cf8" strokeWidth="3.5" strokeLinecap="round" />
                 
                 {/* Render nodes for coordinates */}
                 {path.points.map((pt, idx) => (
                   <g key={idx} className="chart-node" style={{ cursor: "pointer" }}>
-                    <circle cx={pt.x} cy={pt.y} r="5.5" fill="#fff" stroke="var(--primary)" strokeWidth="3" />
+                    <circle cx={pt.x} cy={pt.y} r="5.5" fill="#fff" stroke="#818cf8" strokeWidth="3" />
                     <circle cx={pt.x} cy={pt.y} r="10" fill="transparent" />
                     <title>{path.isMock ? `Point ${idx + 1}` : `${((pt as any).amount ?? 0).toFixed(2)} USDC`}</title>
                   </g>

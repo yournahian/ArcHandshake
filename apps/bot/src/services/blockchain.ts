@@ -131,6 +131,26 @@ export const escrowAbi = [
       { name: "hook", type: "address" },
     ],
   },
+  {
+    type: "function",
+    name: "resolveDispute",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "jobId", type: "uint256" },
+      { name: "resolution", type: "uint8" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "resolveDisputeCustom",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "jobId", type: "uint256" },
+      { name: "clientShare", type: "uint256" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 export const treasuryAbi = [
@@ -259,6 +279,50 @@ export async function rejectSubmission(jobId: bigint, reasonHash: `0x${string}`)
     return hash;
   } catch (error) {
     console.error(`Failed to reject submission for job ${jobId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Executes a 'resolveDispute' transaction on behalf of the bot arbitrator wallet
+ */
+export async function resolveDispute(jobId: bigint, resolution: number) {
+  try {
+    const { request } = await publicClient.simulateContract({
+      address: DEPLOYED_ESCROW_ADDRESS,
+      abi: escrowAbi,
+      functionName: "resolveDispute",
+      args: [jobId, resolution],
+      account,
+    });
+
+    const hash = await walletClient.writeContract(request);
+    console.log(`Resolved dispute for job ${jobId} with resolution ${resolution}. Tx Hash: ${hash}`);
+    return hash;
+  } catch (error) {
+    console.error(`Failed to resolve dispute for job ${jobId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Executes a 'resolveDisputeCustom' transaction on behalf of the bot arbitrator wallet
+ */
+export async function resolveDisputeCustom(jobId: bigint, clientShare: bigint) {
+  try {
+    const { request } = await publicClient.simulateContract({
+      address: DEPLOYED_ESCROW_ADDRESS,
+      abi: escrowAbi,
+      functionName: "resolveDisputeCustom",
+      args: [jobId, clientShare],
+      account,
+    });
+
+    const hash = await walletClient.writeContract(request);
+    console.log(`Resolved custom dispute for job ${jobId} with clientShare ${clientShare}. Tx Hash: ${hash}`);
+    return hash;
+  } catch (error) {
+    console.error(`Failed to resolve custom dispute for job ${jobId}:`, error);
     throw error;
   }
 }

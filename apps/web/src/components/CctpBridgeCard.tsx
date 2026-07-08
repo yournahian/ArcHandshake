@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from "react";
-import { 
+import {
   decodeEventLog, keccak256, parseUnits, formatUnits,
   createWalletClient, createPublicClient, custom, http
 } from "viem";
@@ -32,22 +32,22 @@ import {
 type BridgeStep = "idle" | "approving" | "burning" | "attesting" | "minting" | "done" | "error";
 
 const STEP_LABELS: Record<BridgeStep, string> = {
-  idle:      "Ready",
+  idle: "Ready",
   approving: "Approving USDC…",
-  burning:   "Burning on source chain…",
+  burning: "Burning on source chain…",
   attesting: "Waiting for Circle attestation…",
-  minting:   "Minting on destination chain…",
-  done:      "Bridge complete!",
-  error:     "Error",
+  minting: "Minting on destination chain…",
+  done: "Bridge complete!",
+  error: "Error",
 };
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
 const STEPS: { key: BridgeStep; label: string }[] = [
   { key: "approving", label: "Approve" },
-  { key: "burning",   label: "Burn" },
+  { key: "burning", label: "Burn" },
   { key: "attesting", label: "Attest" },
-  { key: "minting",   label: "Mint" },
+  { key: "minting", label: "Mint" },
 ];
 
 function StepTracker({ current }: { current: BridgeStep }) {
@@ -55,8 +55,8 @@ function StepTracker({ current }: { current: BridgeStep }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0", marginBottom: "20px" }}>
       {STEPS.map((s, i) => {
-        const done    = activeIdx > i;
-        const active  = activeIdx === i;
+        const done = activeIdx > i;
+        const active = activeIdx === i;
         const pending = activeIdx < i;
         return (
           <React.Fragment key={s.key}>
@@ -91,21 +91,21 @@ export function ChainIcon({ chainKey, size = 16 }: { chainKey: string; size?: nu
   if (chainKey === "eth-sepolia") {
     return (
       <svg viewBox="0 0 784 1277" width={size} height={size} style={{ flexShrink: 0 }}>
-        <path d="M392 0L383.5 28.5V870.5L392 879L784 648L392 0Z" fill="#a4b3f6"/>
-        <path d="M392 0L0 648L392 879V470V0Z" fill="#758bfd"/>
-        <path d="M392 956L387 962V1271.5L392 1277L784 726L392 956Z" fill="#a4b3f6"/>
-        <path d="M392 1277V956L0 726L392 1277Z" fill="#758bfd"/>
-        <path d="M392 879L784 648L392 531.5V879Z" fill="#3f5efb"/>
-        <path d="M0 648L392 879V531.5L0 648Z" fill="#5c7aff"/>
+        <path d="M392 0L383.5 28.5V870.5L392 879L784 648L392 0Z" fill="#a4b3f6" />
+        <path d="M392 0L0 648L392 879V470V0Z" fill="#758bfd" />
+        <path d="M392 956L387 962V1271.5L392 1277L784 726L392 956Z" fill="#a4b3f6" />
+        <path d="M392 1277V956L0 726L392 1277Z" fill="#758bfd" />
+        <path d="M392 879L784 648L392 531.5V879Z" fill="#3f5efb" />
+        <path d="M0 648L392 879V531.5L0 648Z" fill="#5c7aff" />
       </svg>
     );
   }
   if (chainKey === "base-sepolia") {
     return (
       <svg viewBox="0 0 240 240" width={size} height={size} style={{ flexShrink: 0 }}>
-        <circle cx="120" cy="120" r="110" fill="#0052FF"/>
-        <circle cx="120" cy="120" r="70" stroke="#fff" strokeWidth="22" fill="none"/>
-        <path d="M120 50h80" stroke="#fff" strokeWidth="22" strokeLinecap="round"/>
+        <circle cx="120" cy="120" r="110" fill="#0052FF" />
+        <circle cx="120" cy="120" r="70" stroke="#fff" strokeWidth="22" fill="none" />
+        <path d="M120 50h80" stroke="#fff" strokeWidth="22" strokeLinecap="round" />
       </svg>
     );
   }
@@ -184,15 +184,16 @@ interface Props {
     abiParameters: { type: string; value: string }[];
     amount?: string;
   }) => Promise<string>;
+  onComplete?: () => void;
 }
 
-export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCall }: Props) {
+export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCall, onComplete }: Props) {
   const [address, setAddress] = useState<`0x${string}` | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
 
   const [bridgeToCircleWallet, setBridgeToCircleWallet] = useState(!!circleWalletAddress);
-  const [srcKey, setSrcKey]   = useState("eth-sepolia");
-  const [dstKey, setDstKey]   = useState("base-sepolia");
+  const [srcKey, setSrcKey] = useState("eth-sepolia");
+  const [dstKey, setDstKey] = useState("base-sepolia");
 
   useEffect(() => {
     if (circleWalletAddress) {
@@ -200,16 +201,54 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     }
   }, [circleWalletAddress]);
 
-  const [amount, setAmount]   = useState("");
-  const [step, setStep]       = useState<BridgeStep>("idle");
+  const [amount, setAmount] = useState("");
+  const [step, setStep] = useState<BridgeStep>("idle");
   const [statusMsg, setStatusMsg] = useState("");
-  const [errorMsg, setErrorMsg]   = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
   const [burnTxHash, setBurnTxHash] = useState<`0x${string}` | null>(null);
-  const [dstTxHash, setDstTxHash]   = useState<`0x${string}` | null>(null);
+  const [dstTxHash, setDstTxHash] = useState<`0x${string}` | null>(null);
 
   const [srcBalance, setSrcBalance] = useState<string>("0.00");
   const [dstBalance, setDstBalance] = useState<string>("0.00");
   const [loadingBalances, setLoadingBalances] = useState<boolean>(false);
+
+  const [pendingTx, setPendingTx] = useState<{ hash: string; srcKey: string } | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedHash = localStorage.getItem("cctp_pending_burn_hash");
+    const savedSrcKey = localStorage.getItem("cctp_pending_src_key");
+    if (savedHash && savedSrcKey) {
+      setPendingTx({ hash: savedHash, srcKey: savedSrcKey });
+    }
+  }, []);
+
+  // CCTP Fast Transfer Allowance state
+  const [fastAllowance, setFastAllowance] = useState<number | null>(null);
+  const [loadingAllowance, setLoadingAllowance] = useState<boolean>(false);
+
+  const fetchAllowance = useCallback(async () => {
+    setLoadingAllowance(true);
+    try {
+      const res = await fetch("/api/circle/cctp/allowance");
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.allowance === "number") {
+          setFastAllowance(data.allowance);
+        } else if (data.allowance) {
+          setFastAllowance(parseFloat(data.allowance));
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch CCTP Fast Transfer allowance:", err);
+    } finally {
+      setLoadingAllowance(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAllowance();
+  }, [fetchAllowance]);
 
   const srcChain = CCTP_CHAINS[srcKey];
   const dstChain = CCTP_CHAINS[bridgeToCircleWallet ? "arc-testnet" : dstKey];
@@ -222,10 +261,27 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     }
     try {
       const provider = (window as any).ethereum;
+      
+      // Request fresh account permissions to force the wallet's account selector/switch popup
+      try {
+        await provider.request({
+          method: "wallet_requestPermissions",
+          params: [{ eth_accounts: {} }],
+        });
+      } catch (permErr: any) {
+        console.warn("Permissions request rejected or unsupported:", permErr);
+        // If user rejected the permissions popup, return and don't request accounts
+        if (permErr?.code === 4001) {
+          setErrorMsg("Connection request rejected by user.");
+          return;
+        }
+      }
+
       const accounts = await provider.request({ method: "eth_requestAccounts" });
       const currentChainId = await provider.request({ method: "eth_chainId" });
       setAddress(accounts[0] as `0x${string}`);
       setChainId(parseInt(currentChainId, 16));
+      localStorage.removeItem("cctp_metamask_disconnected");
       setErrorMsg("");
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to connect wallet.");
@@ -238,6 +294,11 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     const provider = (window as any).ethereum;
 
     const handleAccounts = (accounts: string[]) => {
+      const isDisconnected = localStorage.getItem("cctp_metamask_disconnected") === "true";
+      if (isDisconnected) {
+        setAddress(null);
+        return;
+      }
       if (accounts.length > 0) {
         setAddress(accounts[0] as `0x${string}`);
       } else {
@@ -252,15 +313,18 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     provider.on("accountsChanged", handleAccounts);
     provider.on("chainChanged", handleChain);
 
-    // Initial check
-    provider.request({ method: "eth_accounts" }).then((accounts: string[]) => {
-      if (accounts.length > 0) {
-        setAddress(accounts[0] as `0x${string}`);
-      }
-    });
-    provider.request({ method: "eth_chainId" }).then((hexId: string) => {
-      setChainId(parseInt(hexId, 16));
-    });
+    // Initial check if not explicitly disconnected by user
+    const isDisconnected = localStorage.getItem("cctp_metamask_disconnected") === "true";
+    if (!isDisconnected) {
+      provider.request({ method: "eth_accounts" }).then((accounts: string[]) => {
+        if (accounts.length > 0) {
+          setAddress(accounts[0] as `0x${string}`);
+        }
+      });
+      provider.request({ method: "eth_chainId" }).then((hexId: string) => {
+        setChainId(parseInt(hexId, 16));
+      });
+    }
 
     return () => {
       if (provider.removeListener) {
@@ -368,13 +432,13 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     for (let i = 0; i < MAX_POLLS; i++) {
       const displayStatus = i === 0 ? "Checking…" : "Polling…";
       setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Status: ${displayStatus} (Note: Sandbox indexing can take 3-15 minutes depending on network traffic)`);
-      
+
       try {
         const res = await fetch(`/api/circle/cctp/attestation?sourceDomain=${queryDomain}&txHash=${txHash}`);
         const data = await res.json();
-        
+
         console.log("[CCTP pollAttestation]", data);
-        
+
         if (data?.error) {
           setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Error: ${data.error}`);
         } else if (data?.status) {
@@ -393,7 +457,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
         console.warn("Error calling attestation endpoint:", err);
         setStatusMsg(`Waiting for Circle attestation... (Attempt ${i + 1}/${MAX_POLLS}). Request failed`);
       }
-      
+
       await new Promise(r => setTimeout(r, 5000));
     }
     throw new Error("Attestation timed out after 20 minutes.");
@@ -409,7 +473,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     try {
       // ── Step 1: Approve ────────────────────────────────────────────────
       setStep("approving");
-      setStatusMsg("Switching to source chain and approving USDC spend…");
+      setStatusMsg(`Switching to ${srcChain.name} and approving USDC spend…`);
 
       if (chainId !== srcChain.id) {
         await switchChain(srcChain.id);
@@ -436,12 +500,44 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
         transport: custom(provider),
       });
 
+      // Estimate gas fees on source chain with a 25% safety buffer to handle L2 basefee fluctuations
+      let maxFeePerGasBuffered: bigint | undefined = undefined;
+      let maxPriorityFeePerGasBuffered: bigint | undefined = undefined;
+      try {
+        const fees = await publicClientSrc.estimateFeesPerGas();
+        if (fees.maxFeePerGas) {
+          maxFeePerGasBuffered = (fees.maxFeePerGas * 125n) / 100n;
+        }
+        if (fees.maxPriorityFeePerGas) {
+          maxPriorityFeePerGasBuffered = (fees.maxPriorityFeePerGas * 125n) / 100n;
+        }
+      } catch (feeErr) {
+        console.warn("Failed to estimate source gas fees, falling back to wallet defaults:", feeErr);
+      }
+
+      // Estimate gas limit with a safety buffer for L2 execution
+      let gasEstimate = BigInt(150000);
+      try {
+        const estimated = await publicClientSrc.estimateContractGas({
+          account: address,
+          address: srcChain.usdc,
+          abi: USDC_ABI,
+          functionName: "approve",
+          args: [srcChain.tokenMessenger, amountUnits],
+        });
+        gasEstimate = (estimated * 125n) / 100n;
+      } catch (gasErr) {
+        console.warn("Failed to estimate gas for approve, using fallback limit:", gasErr);
+      }
+
       const approveHash = await (walletClientSrc as any).writeContract({
         address: srcChain.usdc,
         abi: USDC_ABI,
         functionName: "approve",
         args: [srcChain.tokenMessenger, amountUnits],
-        gas: BigInt(80000), // Prevent RPC gas limit inflation
+        gas: gasEstimate,
+        maxFeePerGas: maxFeePerGasBuffered,
+        maxPriorityFeePerGas: maxPriorityFeePerGasBuffered,
       });
 
       setStatusMsg("Waiting for approval transaction to be confirmed…");
@@ -452,11 +548,11 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
 
       // ── Step 2: Burn ───────────────────────────────────────────────────
       setStep("burning");
-      setStatusMsg("Burning USDC on source chain via Circle CCTP…");
+      setStatusMsg(`Burning USDC on ${srcChain.name} via Circle CCTP…`);
 
       const targetRecipient = (bridgeToCircleWallet && circleWalletAddress) ? circleWalletAddress : address;
       const mintRecipient = addressToBytes32(targetRecipient as `0x${string}`) as `0x${string}`;
-      const ZERO_BYTES32  = `0x${"0".repeat(64)}` as `0x${string}`;
+      const ZERO_BYTES32 = `0x${"0".repeat(64)}` as `0x${string}`;
 
       // Diagnostics check
       try {
@@ -466,7 +562,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           functionName: "balanceOf",
           args: [address],
         }) as bigint;
-        
+
         const allowance = await publicClientSrc.readContract({
           address: srcChain.usdc,
           abi: USDC_ABI,
@@ -503,7 +599,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
         }
       } catch (diagErr: any) {
         if (
-          diagErr.message.includes("Insufficient") || 
+          diagErr.message.includes("Insufficient") ||
           diagErr.message.includes("Allowance too low") ||
           diagErr.message.includes("not supported by the CCTP TokenMessenger")
         ) {
@@ -532,8 +628,14 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
         functionName: "depositForBurn",
         args: [amountUnits, dstChain.domainId, mintRecipient, srcChain.usdc, ZERO_BYTES32, 0n, 1000],
         gas: BigInt(250000), // Explicit override to bypass buggy RPC gas limit estimation
+        maxFeePerGas: maxFeePerGasBuffered,
+        maxPriorityFeePerGas: maxPriorityFeePerGasBuffered,
       });
       setBurnTxHash(burnHash);
+      localStorage.setItem("cctp_pending_burn_hash", burnHash);
+      localStorage.setItem("cctp_pending_src_key", srcKey);
+      localStorage.setItem("cctp_pending_dst_key", dstKey);
+      localStorage.setItem("cctp_pending_bridge_to_circle", String(bridgeToCircleWallet));
 
       // Wait for burn tx to be mined
       setStatusMsg("Waiting for burn transaction to be confirmed…");
@@ -556,7 +658,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
 
       // ── Step 3: Attest ─────────────────────────────────────────────────
       setStep("attesting");
-      setStatusMsg("Circle is attesting the burn message (~30s). Please wait…");
+      setStatusMsg(`Waiting for Circle attestation on ${srcChain.name} (~30s). Please wait…`);
       const { attestation, messageBytes } = await pollAttestation(burnHash);
 
       // ── Step 4: Mint ───────────────────────────────────────────────────
@@ -573,6 +675,19 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           ],
         });
         setDstTxHash(mintHash as `0x${string}`);
+
+        // Wait for on-chain confirmation on Arc Testnet
+        setStatusMsg("Confirming mint transaction on Arc Testnet…");
+        const publicClientDst = createPublicClient({
+          chain: {
+            id: dstChain.id,
+            name: dstChain.name,
+            nativeCurrency: dstChain.nativeCurrency || { name: "USD Coin", symbol: "USDC", decimals: 18 },
+            rpcUrls: { default: { http: [dstChain.rpcUrl] } },
+          } as any,
+          transport: http(dstChain.rpcUrl),
+        });
+        await waitForReceipt(publicClientDst, mintHash as `0x${string}`);
       } else {
         setStatusMsg("Switching to destination chain to mint USDC…");
         // We must switch to the destination chain before creating the wallet client for the destination
@@ -599,6 +714,21 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           transport: http(dstChain.rpcUrl),
         });
 
+        // Estimate gas fees on destination chain with a 25% safety buffer
+        let maxFeePerGasDst: bigint | undefined = undefined;
+        let maxPriorityFeePerGasDst: bigint | undefined = undefined;
+        try {
+          const feesDst = await publicClientDst.estimateFeesPerGas();
+          if (feesDst.maxFeePerGas) {
+            maxFeePerGasDst = (feesDst.maxFeePerGas * 125n) / 100n;
+          }
+          if (feesDst.maxPriorityFeePerGas) {
+            maxPriorityFeePerGasDst = (feesDst.maxPriorityFeePerGas * 125n) / 100n;
+          }
+        } catch (feeErr) {
+          console.warn("Failed to estimate destination gas fees, falling back to wallet defaults:", feeErr);
+        }
+
         setStatusMsg("Minting USDC on destination chain…");
         const mintHash = await (walletClientDst as any).writeContract({
           address: dstChain.messageTransmitter,
@@ -606,6 +736,8 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           functionName: "receiveMessage",
           args: [messageBytes, attestation as `0x${string}`],
           gas: BigInt(350000), // Prevent RPC gas limit inflation during CCTP minting
+          maxFeePerGas: maxFeePerGasDst,
+          maxPriorityFeePerGas: maxPriorityFeePerGasDst,
         });
         setDstTxHash(mintHash);
 
@@ -614,7 +746,21 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
 
       setStep("done");
       setStatusMsg("");
+      localStorage.removeItem("cctp_pending_burn_hash");
+      localStorage.removeItem("cctp_pending_src_key");
+      localStorage.removeItem("cctp_pending_dst_key");
+      localStorage.removeItem("cctp_pending_bridge_to_circle");
       fetchBalances();
+
+      // Trigger delayed balance checks to handle RPC node sync latency
+      setTimeout(fetchBalances, 3000);
+      setTimeout(fetchBalances, 6000);
+
+      if (onComplete) {
+        onComplete();
+        setTimeout(onComplete, 3000);
+        setTimeout(onComplete, 6000);
+      }
     } catch (err: any) {
       console.error("[CCTP Bridge]", err);
       setStep("error");
@@ -649,6 +795,10 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
 
     try {
       setBurnTxHash(hashToResume);
+      localStorage.setItem("cctp_pending_burn_hash", hashToResume);
+      localStorage.setItem("cctp_pending_src_key", srcKey);
+      localStorage.setItem("cctp_pending_dst_key", dstKey);
+      localStorage.setItem("cctp_pending_bridge_to_circle", String(bridgeToCircleWallet));
 
       // Detect source domain from wallet's active chain
       let detectedDomain = srcChain.domainId;
@@ -726,6 +876,10 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
 
       setStep("done");
       setStatusMsg("");
+      localStorage.removeItem("cctp_pending_burn_hash");
+      localStorage.removeItem("cctp_pending_src_key");
+      localStorage.removeItem("cctp_pending_dst_key");
+      localStorage.removeItem("cctp_pending_bridge_to_circle");
       fetchBalances();
     } catch (err: any) {
       console.error("[CCTP Bridge]", err);
@@ -748,7 +902,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
     setStep("idle"); setStatusMsg(""); setErrorMsg(""); setBurnTxHash(null); setDstTxHash(null); setAmount("");
   };
 
-  const isRunning = ["approving","burning","attesting","minting"].includes(step);
+  const isRunning = ["approving", "burning", "attesting", "minting"].includes(step);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -784,8 +938,35 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           padding: "8px 12px", borderRadius: "8px", background: "rgba(255,255,255,0.03)",
           border: "1px solid rgba(255,255,255,0.08)", fontSize: "0.75rem", color: "var(--text-muted,#888)"
         }}>
-          <span>MetaMask Connected:</span>
-          <strong style={{ color: "#e2e8f0" }}>{address.slice(0, 6)}...{address.slice(-4)}</strong>
+          <div>
+            <span>MetaMask Connected:</span>
+            <strong style={{ color: "#e2e8f0", marginLeft: "4px" }}>{address.slice(0, 6)}...{address.slice(-4)}</strong>
+          </div>
+          <button
+            onClick={() => {
+              setAddress(null);
+              setChainId(null);
+              localStorage.setItem("cctp_metamask_disconnected", "true");
+            }}
+            style={{
+              background: "rgba(239, 68, 68, 0.1)",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+              color: "#f87171",
+              padding: "4px 8px",
+              borderRadius: "6px",
+              fontSize: "0.7rem",
+              cursor: "pointer",
+              transition: "all 0.2s"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(239, 68, 68, 0.2)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
+            }}
+          >
+            Disconnect
+          </button>
         </div>
       )}
 
@@ -812,8 +993,110 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
       {/* Step tracker — only show once started */}
       {step !== "idle" && <StepTracker current={step} />}
 
+      {pendingTx && step === "idle" && address && (
+        <div style={{
+          padding: "12px 14px",
+          borderRadius: "12px",
+          background: "rgba(245, 158, 11, 0.08)",
+          border: "1px solid rgba(245, 158, 11, 0.25)",
+          marginBottom: "16px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px"
+        }}>
+          <div style={{ fontSize: "0.82rem", color: "#f59e0b", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px" }}>
+            <span>⚠️ Unfinished CCTP Bridge Detected</span>
+          </div>
+          <div style={{ fontSize: "0.75rem", color: "var(--text-muted,#888)", lineHeight: 1.5 }}>
+            You have a pending bridge transaction from <strong>{CCTP_CHAINS[pendingTx.srcKey]?.name || "another chain"}</strong> that was not completed in your previous session.
+          </div>
+          <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
+            <button
+              onClick={() => {
+                const savedSrc = localStorage.getItem("cctp_pending_src_key") || "eth-sepolia";
+                const savedDst = localStorage.getItem("cctp_pending_dst_key") || "base-sepolia";
+                const savedCircle = localStorage.getItem("cctp_pending_bridge_to_circle") === "true";
+                setSrcKey(savedSrc);
+                setDstKey(savedDst);
+                setBridgeToCircleWallet(savedCircle);
+                setPendingTx(null);
+                handleResume(pendingTx.hash as `0x${string}`);
+              }}
+              style={{
+                background: "linear-gradient(135deg, #f59e0b, #ef4444)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "8px",
+                padding: "8px 14px",
+                fontSize: "0.78rem",
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+            >
+              Resume Bridge
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem("cctp_pending_burn_hash");
+                localStorage.removeItem("cctp_pending_src_key");
+                localStorage.removeItem("cctp_pending_dst_key");
+                localStorage.removeItem("cctp_pending_bridge_to_circle");
+                setPendingTx(null);
+              }}
+              style={{
+                background: "rgba(255,255,255,0.06)",
+                color: "#ccc",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "8px",
+                padding: "8px 14px",
+                fontSize: "0.78rem",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {step === "idle" && address && (
         <>
+          {/* CCTP Fast Transfer Status Badge */}
+          {fastAllowance !== null && (
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              background: fastAllowance > 0 ? "rgba(16, 185, 129, 0.05)" : "rgba(245, 158, 11, 0.05)",
+              border: fastAllowance > 0 ? "1px solid rgba(16, 185, 129, 0.15)" : "1px solid rgba(245, 158, 11, 0.15)",
+              fontSize: "0.78rem",
+              marginBottom: "12px",
+              color: "var(--text-primary)"
+            }}>
+              <span style={{
+                width: "8px",
+                height: "8px",
+                borderRadius: "50%",
+                background: fastAllowance > 0 ? "#10b981" : "#f59e0b",
+                display: "inline-block"
+              }} />
+              {fastAllowance > 0 ? (
+                <span>
+                  <strong>⚡ CCTP Fast Transfer: Active</strong> ({fastAllowance.toLocaleString()} USDC pool)
+                </span>
+              ) : (
+                <span>
+                  <strong>⚠️ Standard Transfer Only</strong> (Circle Fast Pool Depleted)
+                </span>
+              )}
+            </div>
+          )}
           {circleWalletAddress && (
             <div style={{
               display: "flex",
@@ -825,7 +1108,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
               borderRadius: "10px",
               marginBottom: "8px"
             }}>
-              <div 
+              <div
                 onClick={() => {
                   const nextVal = !bridgeToCircleWallet;
                   setBridgeToCircleWallet(nextVal);
@@ -940,9 +1223,9 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "12px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "12px" }}>
             <span style={{ fontSize: "0.72rem", color: "var(--text-muted,#888)" }}>Already burned? Resume bridge by pasting the transaction hash:</span>
             <div style={{ display: "flex", gap: "8px" }}>
-              <input 
-                type="text" 
-                placeholder="Paste burn transaction hash (0x...)" 
+              <input
+                type="text"
+                placeholder="Paste burn transaction hash (0x...)"
                 id="idle-resume-hash-input"
                 style={{
                   flex: 1, padding: "8px 12px", borderRadius: "8px",
@@ -950,7 +1233,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
                   color: "#fff", fontSize: "0.8rem", outline: "none"
                 }}
               />
-              <button 
+              <button
                 onClick={() => {
                   const input = document.getElementById("idle-resume-hash-input") as HTMLInputElement;
                   if (input && input.value.trim().startsWith("0x") && input.value.trim().length > 10) {
@@ -977,6 +1260,53 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
             {STEP_LABELS[step]}
             {statusMsg && <><br /><span style={{ fontSize: "0.8rem", color: "var(--text-muted,#888)" }}>{statusMsg}</span></>}
           </p>
+          {burnTxHash && (
+            <div style={{
+              marginTop: "8px",
+              padding: "10px 12px",
+              borderRadius: "8px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              fontSize: "0.78rem",
+              color: "var(--text-muted,#888)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "6px"
+            }}>
+              <div>
+                <span>Burn Transaction: </span>
+                <a
+                  href={`${srcChain.explorerUrl}/tx/${burnTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "#f59e0b", textDecoration: "underline", fontWeight: 600 }}
+                >
+                  {burnTxHash.slice(0, 10)}...{burnTxHash.slice(-8)}
+                </a>
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(burnTxHash);
+                  alert("Transaction hash copied to clipboard!");
+                }}
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: "6px",
+                  padding: "4px 8px",
+                  fontSize: "0.7rem",
+                  color: "#ccc",
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+              >
+                Copy Hash
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1020,8 +1350,8 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
               <RefreshCw size={14} /> Reset / Start Over
             </button>
             {burnTxHash && (
-              <button 
-                onClick={() => handleResume(burnTxHash)} 
+              <button
+                onClick={() => handleResume(burnTxHash)}
                 style={{
                   flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
                   padding: "10px 20px", borderRadius: "10px", border: "none",
@@ -1036,9 +1366,9 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "12px" }}>
             <span style={{ fontSize: "0.72rem", color: "var(--text-muted,#888)" }}>Already burned? Paste transaction hash to resume:</span>
             <div style={{ display: "flex", gap: "8px" }}>
-              <input 
-                type="text" 
-                placeholder="0x..." 
+              <input
+                type="text"
+                placeholder="0x..."
                 id="resume-hash-input"
                 style={{
                   flex: 1, padding: "8px 12px", borderRadius: "8px",
@@ -1046,7 +1376,7 @@ export function CctpBridgeCard({ onBack, circleWalletAddress, executeContractCal
                   color: "#fff", fontSize: "0.8rem", outline: "none"
                 }}
               />
-              <button 
+              <button
                 onClick={() => {
                   const input = document.getElementById("resume-hash-input") as HTMLInputElement;
                   if (input && input.value.trim().startsWith("0x") && input.value.trim().length > 10) {

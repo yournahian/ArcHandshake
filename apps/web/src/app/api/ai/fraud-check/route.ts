@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@supabase/supabase-js";
+import { callAI, getAISettings } from "@/lib/adminSettings";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY?.trim() || "";
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || "",
   process.env.SUPABASE_SERVICE_ROLE_KEY || ""
@@ -50,20 +49,22 @@ export async function POST(req: NextRequest) {
     }
 
     // ── AI-based check (if key available) ──
-    if (GEMINI_API_KEY && flags.length < 2) {
+    const settings = getAISettings();
+    if (settings.apiKey && flags.length < 2) {
       try {
-        const ai = new GoogleGenerativeAI(GEMINI_API_KEY);
-        const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
         const prompt = `Analyze this escrow description for fraud risk. Be concise. Only flag if truly suspicious.
 Description: "${description}"
 Amount: ${amount} USDC
 
 Respond with JSON only: { "aiFlag": "<one sentence risk flag or null>" }`;
-        const result = await model.generateContent(prompt);
-        const raw = result.response.text().replace(/```json|```/g, "").trim();
-        const parsed = JSON.parse(raw);
+
+        const raw = await callAI(prompt);
+        const cleaned = raw.replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(cleaned);
         if (parsed.aiFlag && parsed.aiFlag !== "null") flags.push(parsed.aiFlag);
-      } catch {}
+      } catch (aiErr) {
+        console.warn("AI Fraud Check failed:", aiErr);
+      }
     }
 
     const riskLevel = flags.length === 0 ? "LOW" : flags.length === 1 ? "MEDIUM" : "HIGH";

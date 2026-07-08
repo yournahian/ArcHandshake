@@ -208,6 +208,49 @@ export default function EscrowDetail() {
   // Live countdown timer
   const [timeLeft, setTimeLeft] = useState<string | null>(null);
 
+  // Self-healing timeouts for pending transaction states (resets stuck buttons after unhandled chunk load or wallet cancel errors)
+  useEffect(() => {
+    if (isSettingBudget) {
+      const t = setTimeout(() => setIsSettingBudget(false), 45000);
+      return () => clearTimeout(t);
+    }
+  }, [isSettingBudget]);
+
+  useEffect(() => {
+    if (isFunding) {
+      const t = setTimeout(() => setIsFunding(false), 45000);
+      return () => clearTimeout(t);
+    }
+  }, [isFunding]);
+
+  useEffect(() => {
+    if (isCounterOffering) {
+      const t = setTimeout(() => setIsCounterOffering(false), 45000);
+      return () => clearTimeout(t);
+    }
+  }, [isCounterOffering]);
+
+  useEffect(() => {
+    if (isSubmitting) {
+      const t = setTimeout(() => setIsSubmitting(false), 45000);
+      return () => clearTimeout(t);
+    }
+  }, [isSubmitting]);
+
+  useEffect(() => {
+    if (isReleasing) {
+      const t = setTimeout(() => setIsReleasing(false), 45000);
+      return () => clearTimeout(t);
+    }
+  }, [isReleasing]);
+
+  useEffect(() => {
+    if (isRefunding) {
+      const t = setTimeout(() => setIsRefunding(false), 45000);
+      return () => clearTimeout(t);
+    }
+  }, [isRefunding]);
+
   // Load proposed budget from Supabase or localStorage
   useEffect(() => {
     const loadProposed = async () => {
@@ -527,6 +570,7 @@ export default function EscrowDetail() {
 
   // 1. Determine the negotiation state machine
   const dbResult = submission && submission.status === "Negotiation" ? submission.result : null;
+  const isUpdating = dbResult === "Updating budget...";
   const onChainBudget = jobRaw ? formatUnits(jobRaw[5], 6) : "0";
   const onChainStatus = jobRaw ? jobRaw[7] : 0;
 
@@ -663,7 +707,32 @@ export default function EscrowDetail() {
     const targetAmount = amountToSet || budgetInput;
     if (!targetAmount || parseFloat(targetAmount) <= 0) return;
     setIsSettingBudget(true);
+    const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
     try {
+      // Set Supabase status to "Negotiation" with result "Updating budget..." instantly on click (before wallet modal)
+      // This triggers real-time UI synchronization showing "Syncing New Price Quote (Mining Block...)"
+      if (hasSupabase) {
+        try {
+          const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+          await supabase.from("escrow_submissions").upsert({
+            job_id: Number(jobId),
+            status: "Negotiation",
+            result: "Updating budget...",
+            file_url: isPhysical ? (submission?.fileUrl || "") : "",
+            file_name: isPhysical ? "meetup_code" : "",
+            source: "web"
+          });
+        } catch (dbErr) {
+          console.error("Failed to set temporary updating status in Supabase:", dbErr);
+        }
+      }
+
+      try {
+        localStorage.removeItem(`arc_negotiation_${jobId}`);
+        setLocalCounterOffer(null);
+      } catch (err) {}
+
       const amount = parseUnits(targetAmount, 6);
       const txHash = await writeContract(
         DEPLOYED_ESCROW_ADDRESS,
@@ -671,11 +740,11 @@ export default function EscrowDetail() {
         "setBudget",
         [jobId, amount, "0x"]
       );
+
+      // Wait for on-chain block receipt
       await waitForReceipt(publicClient, txHash);
       setBudgetInput("");
 
-      // Clear negotiation state
-      const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
       if (hasSupabase) {
         try {
           const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -705,15 +774,25 @@ export default function EscrowDetail() {
           console.error("Failed to insert budget set notification:", dbErr);
         }
       }
-      try {
-        localStorage.removeItem(`arc_negotiation_${jobId}`);
-        setLocalCounterOffer(null);
-      } catch (err) {}
 
       refetch();
       await fetchSubmission();
       alert(`Budget successfully updated to ${targetAmount} USDC!`);
     } catch (err: any) {
+      // If error occurs or user cancels, restore Supabase state to original rejected status so they see the red text again
+      if (hasSupabase) {
+        try {
+          const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+          await supabase.from("escrow_submissions").upsert({
+            job_id: Number(jobId),
+            status: "Negotiation",
+            result: "rejected",
+            file_url: isPhysical ? (submission?.fileUrl || "") : "",
+            file_name: isPhysical ? "meetup_code" : "",
+            source: "web"
+          });
+        } catch (dbErr) {}
+      }
       alert(`Set budget failed: ${err.message || err}`);
     } finally {
       setIsSettingBudget(false);
@@ -1101,6 +1180,39 @@ export default function EscrowDetail() {
         [jobId]
       );
       console.log("Dispute registered:", txHash);
+
+      const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (hasSupabase) {
+        try {
+          const isPhysical = qrConfirmationHash && qrConfirmationHash !== "0x0000000000000000000000000000000000000000000000000000000000000000";
+          const disputerRole = address?.toLowerCase() === client.toLowerCase() ? "Client" : "Provider";
+          const counterpartyAddress = address?.toLowerCase() === client.toLowerCase() ? provider : client;
+
+          // 1. Update the submission record in Supabase
+          await supabase.from("escrow_submissions").upsert({
+            job_id: Number(jobId),
+            status: "Disputed",
+            result: `Job disputed by ${disputerRole}. Waiting for arbitrator verdict. Tx Hash: ${txHash}`,
+            file_url: isPhysical ? (submission?.fileUrl || "") : "",
+            file_name: isPhysical ? "meetup_code" : "",
+            source: "web"
+          });
+
+          // 2. Notify the counterparty via the in-app notifications system
+          await supabase.from("notifications").insert({
+            recipient_address: counterpartyAddress.toLowerCase(),
+            type: "DISPUTE",
+            escrow_id: Number(jobId),
+            message: `⚠️ The ${disputerRole.toLowerCase()} has initiated a dispute on JOB #${jobId}. The transaction has been frozen.`,
+            read: false,
+            metadata: { disputer: address, txHash }
+          });
+          console.log("Dispute notification inserted successfully.");
+        } catch (dbErr) {
+          console.error("Failed to sync dispute details to Supabase:", dbErr);
+        }
+      }
+
       refetch();
     } catch (err) {
       alert("Dispute registration failed!");
@@ -1260,15 +1372,81 @@ export default function EscrowDetail() {
 
         {/* Budget detail */}
         <div style={{ textAlign: "center", padding: "24px", background: "rgba(255, 255, 255, 0.02)", border: "1px solid var(--border-color)", borderRadius: "16px" }}>
-          <span style={{ fontSize: "0.9rem", color: "var(--text-secondary)" }}>
-            {budgetRaw === BigInt(0) && proposedBudget ? "Proposed Budget (Pending Confirmation)" : "Escrow Balance"}
+          <span style={{
+            fontSize: "0.9rem",
+            color: isUpdating
+              ? "var(--warning)"
+              : status === 0 && (negotiationState === "buyer_rejected" || negotiationState === "seller_declined")
+              ? "var(--danger)"
+              : status === 0 && negotiationState === "proposed"
+              ? "var(--warning)"
+              : "var(--text-secondary)"
+          }}>
+            {isUpdating
+              ? "Syncing New Price Quote (Mining Block...)"
+              : status === 0
+              ? negotiationState === "proposed"
+                ? submission?.result?.startsWith("Proposed budget:")
+                  ? "Proposed Budget (Pending Confirmation)"
+                  : "Proposed Counter-Offer (Pending)"
+                : negotiationState === "accepted"
+                ? "Agreed Price (Pending Deposit)"
+                : negotiationState === "buyer_rejected"
+                ? "Quoted Price (Rejected by Buyer)"
+                : negotiationState === "seller_declined"
+                ? "Counter-Offer (Declined by Seller)"
+                : budgetRaw === BigInt(0) && proposedBudget
+                ? "Proposed Budget (Pending Confirmation)"
+                : "Quoted Price (Pending Deposit)"
+              : "Escrow Balance"
+            }
           </span>
-          <div style={{ fontSize: "2.8rem", fontWeight: 800, color: budgetRaw === BigInt(0) && proposedBudget ? "var(--warning)" : "var(--text-primary)", fontFamily: "Space Grotesk", marginTop: "4px" }}>
-            {budgetRaw === BigInt(0) && proposedBudget ? proposedBudget : budget} <span style={{ fontSize: "1.5rem", fontWeight: 600, color: "var(--primary)" }}>USDC</span>
+          <div style={{
+            fontSize: "2.8rem",
+            fontWeight: 800,
+            color: isUpdating
+              ? "var(--warning)"
+              : status === 0 && (negotiationState === "buyer_rejected" || negotiationState === "seller_declined")
+              ? "var(--danger)"
+              : status === 0 && (negotiationState === "proposed" || (budgetRaw === BigInt(0) && proposedBudget))
+              ? "var(--warning)"
+              : "var(--text-primary)",
+            fontFamily: "Space Grotesk",
+            marginTop: "4px",
+            opacity: isUpdating ? 0.6 : 1,
+            textDecoration: !isUpdating && status === 0 && (negotiationState === "buyer_rejected" || negotiationState === "seller_declined") ? "line-through" : "none",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "12px"
+          }}>
+            {isUpdating && <RefreshCw className="animate-spin" size={28} style={{ color: "var(--warning)" }} />}
+            {status === 0 && negotiationState === "proposed"
+              ? negotiatedAmount
+              : budgetRaw === BigInt(0) && proposedBudget
+              ? proposedBudget
+              : budget
+            } <span style={{
+              fontSize: "1.5rem",
+              fontWeight: 600,
+              color: isUpdating
+                ? "var(--warning)"
+                : status === 0 && (negotiationState === "buyer_rejected" || negotiationState === "seller_declined")
+                ? "var(--danger)"
+                : "var(--primary)",
+              textDecoration: "none",
+              display: "inline-block"
+            }}>USDC</span>
           </div>
           {usdRate !== null && (
-            <div style={{ fontSize: "0.9rem", color: "var(--text-muted)", marginTop: "4px", fontWeight: 500 }}>
-              ≈ ${(parseFloat(budgetRaw === BigInt(0) && proposedBudget ? proposedBudget || "0" : budget) * usdRate).toFixed(2)} USD <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>(Live Price Lock)</span>
+            <div style={{ fontSize: "0.9rem", color: "var(--text-muted)", marginTop: "4px", fontWeight: 500, opacity: isUpdating ? 0.6 : 1 }}>
+              ≈ ${(parseFloat(
+                status === 0 && negotiationState === "proposed"
+                  ? negotiatedAmount || "0"
+                  : budgetRaw === BigInt(0) && proposedBudget
+                  ? proposedBudget || "0"
+                  : budget
+              ) * usdRate).toFixed(2)} USD <span style={{ fontSize: "0.75rem", opacity: 0.7 }}>(Live Price Lock)</span>
             </div>
           )}
         </div>
@@ -1404,10 +1582,18 @@ export default function EscrowDetail() {
             <div style={{ background: "rgba(245, 158, 11, 0.08)", border: "1px solid rgba(245, 158, 11, 0.2)", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <DollarSign size={20} style={{ color: "var(--warning)" }} />
-                <span style={{ fontWeight: 600, fontSize: "1.05rem", color: "var(--warning)" }}>Buyer Proposed Counter-Offer</span>
+                <span style={{ fontWeight: 600, fontSize: "1.05rem", color: "var(--warning)" }}>
+                  {submission?.result?.startsWith("Proposed budget:") ? "Buyer Proposed Budget Offer" : "Buyer Proposed Counter-Offer"}
+                </span>
               </div>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.5 }}>
-                The buyer proposed a counter-offer of <b style={{ color: "var(--warning)" }}>{counterOfferAmount} USDC</b> instead of your quoted price.
+                {submission?.result?.startsWith("Proposed budget:")
+                  ? "The buyer has set an initial budget offer of "
+                  : "The buyer proposed a counter-offer of "}
+                <b style={{ color: "var(--warning)" }}>{counterOfferAmount} USDC</b>
+                {submission?.result?.startsWith("Proposed budget:")
+                  ? " for this job."
+                  : " instead of your quoted price."}
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button
@@ -1443,7 +1629,7 @@ export default function EscrowDetail() {
                   className="btn-secondary"
                   style={{ borderColor: "var(--danger)", color: "var(--danger)", justifyContent: "center" }}
                 >
-                  Decline Counter-Offer
+                  {submission?.result?.startsWith("Proposed budget:") ? "Decline Offer" : "Decline Counter-Offer"}
                 </button>
               </div>
             </div>
@@ -1507,10 +1693,15 @@ export default function EscrowDetail() {
             <div style={{ background: "rgba(245, 158, 11, 0.05)", border: "1px solid rgba(245, 158, 11, 0.15)", borderRadius: "12px", padding: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600, color: "var(--warning)" }}>
                 <RefreshCw className="animate-spin" size={16} />
-                <span>Counter-Offer Proposed</span>
+                <span>
+                  {submission?.result?.startsWith("Proposed budget:") ? "Initial Offer Proposed" : "Counter-Offer Proposed"}
+                </span>
               </div>
               <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", margin: 0, lineHeight: 1.4 }}>
-                You have proposed a counter-offer of <b>{counterOfferAmount} USDC</b>. Waiting for the seller to accept or update their budget.
+                {submission?.result?.startsWith("Proposed budget:")
+                  ? "You have proposed an initial budget of "
+                  : "You have proposed a counter-offer of "}
+                <b>{counterOfferAmount} USDC</b>. Waiting for the seller to accept or update their budget.
               </p>
               <button
                 onClick={async () => {
@@ -1537,7 +1728,7 @@ export default function EscrowDetail() {
                 className="btn-secondary"
                 style={{ fontSize: "0.8rem", padding: "6px 12px", alignSelf: "flex-start" }}
               >
-                Cancel Counter-Offer
+                {submission?.result?.startsWith("Proposed budget:") ? "Cancel Offer" : "Cancel Counter-Offer"}
               </button>
             </div>
           )}
@@ -1736,7 +1927,7 @@ export default function EscrowDetail() {
           )}
 
           {/* Completed State Review Option */}
-          {status === 3 && (
+          {status === 3 && (isClient || isProvider) && (
             <div style={{ background: "rgba(16, 185, 129, 0.04)", border: "1px solid rgba(16, 185, 129, 0.15)", borderRadius: "12px", padding: "20px", textAlign: "center" }}>
               <span style={{ fontSize: "1.1rem" }}>🌟</span>
               <p style={{ margin: "6px 0 12px", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
@@ -1756,6 +1947,50 @@ export default function EscrowDetail() {
               )}
             </div>
           )}
+
+          {/* Admin Support Section */}
+          {(isClient || isProvider) && (
+            <div style={{
+              marginTop: "24px",
+              padding: "16px 20px",
+              background: "rgba(255, 255, 255, 0.02)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "12px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "16px",
+              boxSizing: "border-box"
+            }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px", textAlign: "left" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)" }}>Need Human Assistance?</span>
+                <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                  If you encounter any issues with AI verification, or need dispute mediation, click to contact human support.
+                </p>
+                {(status === 3 || status === 4 || status === 5) && (
+                  <span style={{ fontSize: "0.72rem", color: "var(--danger)", marginTop: "4px", fontWeight: 500 }}>
+                    ⚠️ Note: This transaction is finalized. Funds have been released/returned onchain and cannot be reversed by Admin.
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => window.open("https://t.me/ArcHandshakeBot", "_blank")}
+                className="btn-secondary"
+                style={{
+                  padding: "8px 16px",
+                  fontSize: "0.8rem",
+                  whiteSpace: "nowrap",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px"
+                }}
+              >
+                💬 Admin Support
+              </button>
+            </div>
+          )}
+
         </div>
         
         {toast && (

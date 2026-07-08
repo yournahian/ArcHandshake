@@ -58,7 +58,7 @@ export function CircleWalletCard({ onTransactionSuccess }: { onTransactionSucces
   // Fetch token balances to configure token transfer & show swap balances
   const [balances, setBalances] = useState<any[]>([]);
 
-  useEffect(() => {
+  const fetchCircleBalances = useCallback(() => {
     if (!wallet?.id || !userToken) return;
     fetch(`/api/circle/balance?walletId=${wallet.id}&userToken=${encodeURIComponent(userToken)}`)
       .then(res => res.json())
@@ -72,6 +72,10 @@ export function CircleWalletCard({ onTransactionSuccess }: { onTransactionSucces
       })
       .catch(err => console.error("Error fetching balances:", err));
   }, [wallet?.id, userToken]);
+
+  useEffect(() => {
+    fetchCircleBalances();
+  }, [fetchCircleBalances]);
 
   // Dynamically initialize swap select values based on available token balances
   useEffect(() => {
@@ -475,6 +479,7 @@ export function CircleWalletCard({ onTransactionSuccess }: { onTransactionSucces
         onBack={() => setActiveTab("none")} 
         circleWalletAddress={wallet?.address}
         executeContractCall={executeContractCall}
+        onComplete={fetchCircleBalances}
       />
     );
   }

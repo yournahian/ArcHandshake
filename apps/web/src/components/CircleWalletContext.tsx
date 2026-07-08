@@ -361,6 +361,28 @@ export function CircleWalletProvider({ children }: { children: React.ReactNode }
       }
     }
 
+    // Try polling the transactions history to find the transaction matching this challengeId
+    for (let i = 0; i < 30; i++) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const listRes = await fetch(`/api/circle/transactions?walletId=${wallet.id}&userToken=${encodeURIComponent(userToken)}`);
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          const list = listData.transactions || [];
+          const matchingTx = list.find((t: any) => t.challengeId === data.challengeId);
+          if (matchingTx) {
+            const txHash = matchingTx.txHash;
+            if (txHash && txHash !== "0x" && txHash.length > 10) {
+              console.log("[executeContractCall] Found real transaction hash from history:", txHash);
+              return txHash as string;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Error polling transactions history for challengeId:", e);
+      }
+    }
+
     // Fallback to checking challenge payload result
     const fallbackHash: string =
       sdkResult?.result?.transactionHash ??

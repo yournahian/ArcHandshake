@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as dotenv from "dotenv";
 import * as path from "path";
 import * as https from "https";
@@ -8,17 +7,163 @@ dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 dotenv.config({ path: path.resolve(process.cwd(), "../.env") });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-// Initialize Google Gen AI if API key is present
-let aiModel: any = null;
+interface AIRequest {
+  prompt: string;
+  image?: { base64: string; mimeType: string };
+}
 
-if (process.env.GEMINI_API_KEY) {
-  try {
-    const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    aiModel = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
-    console.log("✅ Gemini AI initialized for NLP + Vision verification.");
-  } catch (e) {
-    console.warn("Failed to initialize Google Gen AI:", e);
+// ─── Gemini HTTP Client ──────────────────────────────────────────────────────
+async function callGemini(apiKey: string, prompt: string, image?: { base64: string; mimeType: string }): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const parts: any[] = [{ text: prompt }];
+  if (image) {
+    parts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.base64
+      }
+    });
   }
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { responseMimeType: "application/json" }
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Gemini API returned status ${response.status}: ${await response.text()}`);
+  }
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini API returned empty response candidates");
+  return text;
+}
+
+// ─── OpenAI / Groq / OpenRouter HTTP Client ─────────────────────────────────
+async function callOpenAICompatible(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  prompt: string,
+  image?: { base64: string; mimeType: string }
+): Promise<string> {
+  const headers: any = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${apiKey}`
+  };
+  if (baseUrl.includes("openrouter")) {
+    headers["HTTP-Referer"] = "https://archandshake.com";
+    headers["X-Title"] = "ArchHandshake Arbitrator";
+  }
+
+  const messages: any[] = [];
+  const contentParts: any[] = [{ type: "text", text: prompt }];
+  if (image) {
+    contentParts.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${image.mimeType};base64,${image.base64}`
+      }
+    });
+  }
+  messages.push({ role: "user", content: contentParts });
+
+  const body: any = {
+    model,
+    messages,
+    response_format: { type: "json_object" }
+  };
+
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    throw new Error(`${model} API returned status ${response.status}: ${await response.text()}`);
+  }
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content;
+  if (!text) throw new Error(`${model} API returned empty choices`);
+  return text;
+}
+
+// ─── Failover Engine ─────────────────────────────────────────────────────────
+export async function callAIWithFailover(req: AIRequest): Promise<{ text: string; provider: string }> {
+  const configs = [
+    {
+      name: "Gemini Primary",
+      type: "gemini",
+      key: process.env.GEMINI_API_KEY,
+      model: "gemini-1.5-flash"
+    },
+    {
+      name: "Gemini Fallback",
+      type: "gemini",
+      key: process.env.GEMINI_API_KEY_FALLBACK,
+      model: "gemini-1.5-flash"
+    },
+    {
+      name: "OpenAI",
+      type: "openai-compatible",
+      baseUrl: "https://api.openai.com/v1",
+      key: process.env.OPENAI_API_KEY,
+      model: "gpt-4o-mini"
+    },
+    {
+      name: "Groq Primary",
+      type: "openai-compatible",
+      baseUrl: "https://api.groq.com/openai/v1",
+      key: process.env.GROQ_API_KEY,
+      model: "llama-3.2-11b-vision-preview"
+    },
+    {
+      name: "Groq Fallback",
+      type: "openai-compatible",
+      baseUrl: "https://api.groq.com/openai/v1",
+      key: process.env.GROQ_API_KEY_FALLBACK,
+      model: "llama-3.2-11b-vision-preview"
+    },
+    {
+      name: "OpenRouter",
+      type: "openai-compatible",
+      baseUrl: "https://openrouter.ai/api/v1",
+      key: process.env.OPENROUTER_API_KEY,
+      model: "google/gemma-2-9b-it:free"
+    }
+  ];
+
+  for (const config of configs) {
+    if (!config.key) {
+      continue;
+    }
+
+    try {
+      console.log(`[AI Failover Engine] Attempting request using ${config.name}...`);
+      let resultText = "";
+      if (config.type === "gemini") {
+        resultText = await callGemini(config.key, req.prompt, req.image);
+      } else {
+        resultText = await callOpenAICompatible(
+          config.baseUrl!,
+          config.key,
+          config.model,
+          req.prompt,
+          req.image
+        );
+      }
+      
+      console.log(`[AI Failover Engine] ✅ Success with ${config.name}!`);
+      return { text: resultText, provider: config.name };
+    } catch (err: any) {
+      console.error(`[AI Failover Engine] ❌ ${config.name} failed:`, err.message || err);
+    }
+  }
+
+  throw new Error("All AI API Providers failed or rate-limited.");
 }
 
 export interface ExtractedIntent {
@@ -42,42 +187,33 @@ export async function parseMessageIntent(text: string): Promise<ExtractedIntent>
     return { intent: "HELP", params: {} };
   }
 
-  // 2. Try Gemini AI parsing if available
-  if (aiModel) {
-    try {
-      const prompt = `
-        Analyze the following Telegram message and extract the user's intent and parameters.
-        We have three main actions:
-        1. CREATE_ESCROW: User wants to buy something from a seller, or setup an escrow. E.g., "buy a logo from @alice for 50 USDC" or "setup physical escrow for 100 USDC with @bob".
-        2. CREATE_PROPOSAL: User wants to propose a group treasury pool spend. E.g., "propose to pay @charlie 100 USDC for server costs".
-        3. DIRECT_SPEND: User wants to pay someone immediately from their daily limit. E.g., "pay @dave 5 USDC".
+  // 2. Try Failover AI parsing
+  try {
+    const prompt = `
+      Analyze the following Telegram message and extract the user's intent and parameters.
+      We have three main actions:
+      1. CREATE_ESCROW: User wants to buy something from a seller, or setup an escrow. E.g., "buy a logo from @alice for 50 USDC" or "setup physical escrow for 100 USDC with @bob".
+      2. CREATE_PROPOSAL: User wants to propose a group treasury pool spend. E.g., "propose to pay @charlie 100 USDC for server costs".
+      3. DIRECT_SPEND: User wants to pay someone immediately from their daily limit. E.g., "pay @dave 5 USDC".
 
-        Return ONLY a JSON object with this exact structure:
-        {
-          "intent": "CREATE_ESCROW" | "CREATE_PROPOSAL" | "DIRECT_SPEND" | "UNKNOWN",
-          "params": {
-            "amount": number (extracted USDC value),
-            "recipient": string (username like "@alice" or address like "0x..."),
-            "itemType": "digital" | "physical" (default to "digital" unless "in person", "physical", "meetup" is specified),
-            "taskDescription": string (brief description of what is being bought/spent on)
-          }
+      Return ONLY a JSON object with this exact structure:
+      {
+        "intent": "CREATE_ESCROW" | "CREATE_PROPOSAL" | "DIRECT_SPEND" | "UNKNOWN",
+        "params": {
+          "amount": number (extracted USDC value),
+          "recipient": string (username like "@alice" or address like "0x..."),
+          "itemType": "digital" | "physical" (default to "digital" unless "in person", "physical", "meetup" is specified),
+          "taskDescription": string (brief description of what is being bought/spent on)
         }
+      }
 
-        Message to parse: "${text}"
-      `;
+      Message to parse: "${text}"
+    `;
 
-      const result = await aiModel.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-        },
-      });
-
-      const responseText = result.response.text();
-      return JSON.parse(responseText.trim()) as ExtractedIntent;
-    } catch (error) {
-      console.error("Gemini parsing failed, falling back to rule-based parsing:", error);
-    }
+    const { text: responseText, provider } = await callAIWithFailover({ prompt });
+    return JSON.parse(responseText.trim()) as ExtractedIntent;
+  } catch (error) {
+    console.error("AI parsing failed, falling back to rule-based parsing:", error);
   }
 
   // 3. Fallback: Rule-based regex parser
@@ -189,14 +325,13 @@ export async function verifyDeliverable(
 ): Promise<VerificationResult> {
   const fileExtension = fileName.split(".").pop()?.toLowerCase() || "";
 
-  // ─── Gemini Vision path ───────────────────────────────────────────────────
-  if (aiModel) {
-    try {
-      console.log(`🔍 Downloading deliverable for AI vision check: ${fileUrl}`);
-      const fileData = await fetchFileAsBase64(fileUrl);
+  // Try Failover AI Vision path
+  try {
+    console.log(`🔍 Downloading deliverable for AI vision check: ${fileUrl}`);
+    const fileData = await fetchFileAsBase64(fileUrl);
 
-      if (fileData) {
-        const prompt = `
+    if (fileData) {
+      const prompt = `
 You are an autonomous escrow verification agent for a freelance marketplace.
 Your task is to decide whether the uploaded deliverable satisfies the job requirements.
 
@@ -216,35 +351,25 @@ Instructions:
 }
 `;
 
-        const result = await aiModel.generateContent({
-          contents: [{
-            role: "user",
-            parts: [
-              { text: prompt },
-              {
-                inlineData: {
-                  mimeType: fileData.mimeType,
-                  data: fileData.base64,
-                },
-              },
-            ],
-          }],
-          generationConfig: { responseMimeType: "application/json" },
-        });
+      const { text: responseText, provider } = await callAIWithFailover({
+        prompt,
+        image: {
+          base64: fileData.base64,
+          mimeType: fileData.mimeType
+        }
+      });
 
-        const responseText = result.response.text().trim();
-        const parsed = JSON.parse(responseText);
-        console.log(`🤖 Gemini verdict: ${parsed.approved ? "✅ APPROVED" : "❌ REJECTED"} — ${parsed.reason}`);
+      const parsed = JSON.parse(responseText.trim());
+      console.log(`🤖 AI (${provider}) verdict: ${parsed.approved ? "✅ APPROVED" : "❌ REJECTED"} — ${parsed.reason}`);
 
-        return {
-          isApproved: !!parsed.approved,
-          reason: parsed.reason || (parsed.approved ? "Deliverable verified by Gemini AI." : "Deliverable rejected by Gemini AI."),
-          usedAI: true,
-        };
-      }
-    } catch (error: any) {
-      console.error("Gemini Vision verification failed, falling back to heuristic:", error.message || error);
+      return {
+        isApproved: !!parsed.approved,
+        reason: parsed.reason || (parsed.approved ? `Deliverable verified by ${provider}.` : `Deliverable rejected by ${provider}.`),
+        usedAI: true,
+      };
     }
+  } catch (error: any) {
+    console.error("AI Vision verification failed, falling back to heuristic:", error.message || error);
   }
 
   // ─── Heuristic fallback ───────────────────────────────────────────────────

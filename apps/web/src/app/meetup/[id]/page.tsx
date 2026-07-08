@@ -713,6 +713,49 @@ export default function MeetupDetail() {
           </div>
         )}
 
+        {/* Admin Support Section */}
+        {(isClient || isProvider) && (
+          <div style={{
+            marginTop: "24px",
+            padding: "16px 20px",
+            background: "rgba(255, 255, 255, 0.02)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "12px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "16px",
+            boxSizing: "border-box"
+          }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px", textAlign: "left" }}>
+              <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)" }}>Need Human Assistance?</span>
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.4 }}>
+                If you encounter any issues with AI verification, or need dispute mediation, click to contact human support.
+              </p>
+              {(status === 3 || status === 4 || status === 5) && (
+                <span style={{ fontSize: "0.72rem", color: "var(--danger)", marginTop: "4px", fontWeight: 500 }}>
+                  ⚠️ Note: This transaction is finalized. Funds have been released/returned onchain and cannot be reversed by Admin.
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => window.open("https://t.me/ArcHandshakeBot", "_blank")}
+              className="btn-secondary"
+              style={{
+                padding: "8px 16px",
+                fontSize: "0.8rem",
+                whiteSpace: "nowrap",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px"
+              }}
+            >
+              💬 Admin Support
+            </button>
+          </div>
+        )}
+
         </div>
       )}
 

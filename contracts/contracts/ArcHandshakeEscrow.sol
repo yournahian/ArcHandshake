@@ -210,6 +210,24 @@ contract ArcHandshakeEscrow {
         }
     }
 
+    /// @notice Allows the designated evaluator/arbitrator to resolve a dispute with custom splitting
+    function resolveDisputeCustom(uint256 jobId, uint256 clientShare) external onlyEvaluator(jobId) {
+        Job storage job = jobs[jobId];
+        require(job.status == JobStatus.Disputed, "Job is not disputed");
+        require(clientShare <= job.budget, "Client share exceeds budget");
+
+        emit DisputeResolved(jobId, 3); // 3 = Custom Split
+
+        job.status = JobStatus.Completed;
+        if (clientShare > 0) {
+            require(IERC20(USDC).transfer(job.client, clientShare), "Client split failed");
+        }
+        uint256 providerShare = job.budget - clientShare;
+        if (providerShare > 0) {
+            require(IERC20(USDC).transfer(job.provider, providerShare), "Provider split failed");
+        }
+    }
+
     /// @notice Allows instant release of physical escrow using QR-code code confirmation (Client gives code to Provider)
     function qrRelease(uint256 jobId, string calldata code) external onlyProvider(jobId) {
         Job storage job = jobs[jobId];
