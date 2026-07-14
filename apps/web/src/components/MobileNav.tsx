@@ -49,7 +49,7 @@ export function MobileNav() {
         style={{ boxShadow: scrolled ? "0 2px 20px rgba(0,0,0,0.4)" : "none" }}
       >
         <Link href="/" className="header-logo">
-          ArcHandshake
+          <img src="/logo.png" alt="ArcHandshake" style={{ height: "32px", width: "auto", objectFit: "contain" }} />
         </Link>
 
         <nav className="main-nav">
@@ -68,7 +68,7 @@ export function MobileNav() {
       {/* ── Mobile Top Bar (wallet only) ──────────────────────────────────── */}
       <div className="mobile-top-bar">
         <Link href="/" className="header-logo" style={{ fontSize: "1.1rem" }}>
-          ArcHandshake
+          <img src="/logo.png" alt="ArcHandshake" style={{ height: "28px", width: "auto", objectFit: "contain" }} />
         </Link>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <NotificationBell />

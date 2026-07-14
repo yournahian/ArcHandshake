@@ -380,10 +380,20 @@ label {
   text-decoration: none;
   letter-spacing: -0.01em;
   transition: color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .header-logo:hover {
   color: hsl(var(--primary));
+}
+
+.header-logo-img {
+  height: 36px;
+  width: 36px;
+  object-fit: contain;
+  border-radius: 4px;
 }
 
 .main-nav {

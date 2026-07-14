@@ -11,6 +11,11 @@ import HoverFooter from "@/components/ui/hover-footer";
 export const metadata = {
   title: "ArcHandshake - Autonomous Escrow & Group Accountant",
   description: "Secure digital/physical escrows and group finance pools on Arc L1 Blockchain",
+  icons: {
+    icon: "/faicon.png",
+    shortcut: "/faicon.png",
+    apple: "/faicon.png",
+  },
 };
 
 export const viewport = {
