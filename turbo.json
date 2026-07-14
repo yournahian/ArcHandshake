@@ -3,7 +3,32 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "dist/**"]
+      "outputs": [".next/**", "dist/**"],
+      "env": [
+        "CIRCLE_API_KEY",
+        "NEXT_PUBLIC_CIRCLE_APP_ID",
+        "TELEGRAM_BOT_TOKEN",
+        "ARC_RPC_URL",
+        "ARC_CHAIN_ID",
+        "BOT_PRIVATE_KEY",
+        "NEXT_PUBLIC_BOT_WALLET_ADDRESS",
+        "ESCROW_ADDRESS",
+        "NEXT_PUBLIC_ESCROW_ADDRESS",
+        "TREASURY_ADDRESS",
+        "NEXT_PUBLIC_FACTORY_ADDRESS",
+        "NEXT_PUBLIC_WEB_APP_URL",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "KIT_KEY",
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEY_FALLBACK",
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "GROQ_API_KEY_FALLBACK",
+        "OPENROUTER_API_KEY",
+        "ADMIN_PASSWORD"
+      ]
     },
     "dev": {
       "cache": false,

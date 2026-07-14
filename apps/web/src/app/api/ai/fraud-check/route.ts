@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { callAI, getAISettings } from "@/lib/adminSettings";
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ""
-);
-
 export async function POST(req: NextRequest) {
   try {
     const { description, amount, buyerAddress, sellerAddress, escrowId } = await req.json();
@@ -34,9 +29,11 @@ export async function POST(req: NextRequest) {
 
     // Check if buyer has NO prior completed escrows (new + high amount)
     if (buyerAddress && amount && parseFloat(amount) > 100) {
-      const hasSupabase = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY;
-      if (hasSupabase) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseUrl && supabaseKey) {
         try {
+          const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
           const { count } = await supabaseAdmin
             .from("reviews")
             .select("*", { count: "exact", head: true })
